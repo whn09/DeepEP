@@ -103,5 +103,10 @@ if __name__ == '__main__':
         ],
         cmdclass={
             'build_ext': BuildExtension
+        },
+        options={
+            'install': {
+                'prefix': '/home/ubuntu/.local/lib/python3.10/site-packages/'  # 默认安装前缀
+            }
         }
     )

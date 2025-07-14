@@ -30,6 +30,19 @@ template<> struct VecInt<4> { using vec_t = int; };
 template<> struct VecInt<8> { using vec_t = int64_t; };
 template<> struct VecInt<16> { using vec_t = int4; };
 
+template <typename FuncT>
+struct PatternVisitor {
+    FuncT func;
+
+    __device__ __host__
+    explicit PatternVisitor(FuncT&& func): func(std::forward<FuncT>(func)) {}
+
+    __device__ __host__
+    auto operator [](const uint32_t& i) {
+        return func(i);
+    }
+};
+
 __device__ __forceinline__ void trap() {
     asm("trap;");
 }
@@ -280,6 +293,21 @@ __device__  __forceinline__ float exp2f_approx(const float &x) {
 
 // TMA PTX instructions
 #ifndef DISABLE_SM90_FEATURES
+
+__device__ __forceinline__ uint32_t elect_one_sync(int lane_id) {
+    uint32_t pred = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "      elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "      mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(lane_id), "+r"(pred)
+      : "r"(0xffffffff));
+    return pred;
+}
 
 __device__ __forceinline__ void fence_view_async_shared() {
     asm volatile("fence.proxy.async.shared::cta; \n" :: );

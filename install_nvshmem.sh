@@ -16,6 +16,7 @@ export NVSHMEM_BUILD_HYDRA_LAUNCHER=0
 export NVSHMEM_BUILD_TXZ_PACKAGE=0
 export NVSHMEM_TIMEOUT_DEVICE_POLLING=0
 
+sudo apt update
 sudo apt install -y ninja-build
 sudo apt install -y python3.10-venv
 cmake -G Ninja -S . -B build -DCMAKE_INSTALL_PREFIX=/home/ubuntu/nvshmem

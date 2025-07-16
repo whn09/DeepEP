@@ -370,9 +370,10 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
         base_wqe_idx = ibgda_reserve_wqe_slots(qp, num_wqes);
     base_wqe_idx = __shfl_sync(0xffffffff, base_wqe_idx, 0);
     if (lane_id < num_wqes) {
-        auto wqe_ptr = ibgda_get_wqe_ptr(qp, base_wqe_idx + lane_id);
+        auto wqe_idx = base_wqe_idx + lane_id;
+        auto wqe_ptr = ibgda_get_wqe_ptr(qp, wqe_idx);
         ibgda_write_rdma_write_wqe(qp, my_laddr, my_lkey, my_raddr, my_rkey, my_chunk_size,
-                                   base_wqe_idx, &wqe_ptr);
+                                   wqe_idx, &wqe_ptr);
     }
     __syncwarp();
 

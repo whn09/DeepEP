@@ -5,7 +5,7 @@ cd "$script_dir"
 
 # Remove old dist file, build, and install
 rm -rf dist
-pip install torch
+pip install torch numpy
 python3 setup.py bdist_wheel
 pip install dist/*.whl
 

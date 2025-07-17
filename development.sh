@@ -11,8 +11,5 @@ ln -s build/lib.linux-x86_64-cpython-310/deep_ep_cpp.cpython-310-x86_64-linux-gn
 python3 tests/test_intranode.py
 python3 tests/test_low_latency.py
 
-export MASTER_ADDR=172.31.55.118  # 主节点IP
-export MASTER_PORT=29500       # 主节点端口
-export WORLD_SIZE=2            # 节点总数
-export RANK=0  # 0,1
-python3 tests/test_internode.py
+NVSHMEM_REMOTE_TRANSPORT=libfabric NVSHMEM_LIBFABRIC_PROVIDER=efa MASTER_ADDR=172.31.61.101 MASTER_PORT=29500 WORLD_SIZE=2 RANK=0 python3 tests/test_internode.py
+NVSHMEM_REMOTE_TRANSPORT=libfabric NVSHMEM_LIBFABRIC_PROVIDER=efa MASTER_ADDR=172.31.61.101 MASTER_PORT=29500 WORLD_SIZE=2 RANK=1 python3 tests/test_internode.py

@@ -1,5 +1,3 @@
-pip install torch numpy
-
 # Build and make symbolic links for SO files
 NVSHMEM_DIR=/home/ubuntu/nvshmem python3 setup.py build
 # You may modify the specific SO names according to your own platform

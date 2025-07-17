@@ -1,3 +1,9 @@
+#sudo vim /etc/modprobe.d/nvidia.conf
+#options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"
+
+#sudo update-initramfs -u
+#sudo reboot
+
 export CUDA_HOME=/usr/local/cuda
 # disable all features except IBGDA
 export NVSHMEM_IBGDA_SUPPORT=1

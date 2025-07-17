@@ -1,3 +1,5 @@
+# source /opt/pytorch/bin/activate
+
 # Change current directory into project root
 original_dir=$(pwd)
 script_dir=$(dirname "$0")
@@ -6,9 +8,8 @@ cd "$script_dir"
 # Remove old dist file, build, and install
 rm -rf dist
 # pip install torch numpy
-source /opt/pytorch/bin/activate
 python3 setup.py bdist_wheel
-pip install dist/*.whl
+pip install dist/*.whl --force-reinstall
 
 # Open users' original directory
 cd "$original_dir"

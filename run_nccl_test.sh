@@ -1,9 +1,17 @@
-# cd /usr/local/cuda-12.8/efa/test-cuda-12.8
+echo -e "Host * \n    ForwardAgent yes \nHost * \n    StrictHostKeyChecking no" >> ~/.ssh/config
+ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+chmod 600 ~/.ssh/id_rsa
+cat ~/.ssh/id_rsa.pub
+echo "XXXX" >> ~/.ssh/authorized_keys
+ssh member_node_private_ip
 
-# ./all_reduce_perf -b 8 -e 128M -f 2 -g 8
+cd /usr/local/cuda-12.8/efa/test-cuda-12.8
 
-# mpirun -np 16 -H 172.31.61.101:8,172.31.53.208:8 -N 8 ./all_reduce_perf -b 8 -e 8G -f 2 -g 1
-# #  -bind-to none -map-by slot -x LD_LIBRARY_PATH -x PATH -x NCCL_DEBUG=INFO -mca pml ob1 -mca btl ^openib
+./all_reduce_perf -b 8 -e 128M -f 2 -g 8
+
+# Maybe bug, just input your private IPs to my-hosts
+# TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+# && curl -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/local-ipv4 >> my-hosts
 
 /opt/amazon/openmpi/bin/mpirun \
 -x FI_EFA_USE_DEVICE_RDMA=1 \

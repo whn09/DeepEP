@@ -159,7 +159,11 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
                                      slot_idx * num_bytes_per_msg;
                 const auto dst_p2p_ptr = nvshmemi_get_p2p_ptr(dst_ptr, rank, dst_rank);
                 if (dst_p2p_ptr == 0) {
-                    nvshmemi_ibgda_put_nbi_warp(dst_ptr, src_ptr, num_bytes_per_msg, dst_rank, dst_expert_local_idx, lane_id, slot_idx);
+                    // nvshmemi_ibgda_put_nbi_warp(dst_ptr, src_ptr, num_bytes_per_msg, dst_rank, dst_expert_local_idx, lane_id, slot_idx);
+                    nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
+                                    reinterpret_cast<void*>(src_ptr),
+                                    num_bytes_per_msg,
+                                    dst_rank);
                 } else {
                     // NOTES: only 2 load iterations for 7K hidden with 8 unrolls
                     const auto* src_int4_ptr = reinterpret_cast<const int4*>(src_ptr);
@@ -176,7 +180,7 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
         EP_DEVICE_ASSERT(num_sms > 1);
         if (sm_id == 0) {
             // The first SM is also responsible for checking QPs
-            EP_DEVICE_ASSERT(ibgda_get_state()->num_rc_per_pe >= num_local_experts);
+            // EP_DEVICE_ASSERT(ibgda_get_state()->num_rc_per_pe >= num_local_experts);
 
             // The first SM is also responsible for cleaning the next buffer
             #pragma unroll
@@ -226,7 +230,8 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
         auto dst_ptr = reinterpret_cast<uint64_t>(rdma_recv_count + dst_expert_local_idx * num_ranks + rank);
         auto dst_p2p_ptr = nvshmemi_get_p2p_ptr(dst_ptr, rank, dst_rank);
         if (dst_p2p_ptr == 0) {
-            nvshmemi_ibgda_amo_nonfetch_add(reinterpret_cast<int*>(dst_ptr), -num_tokens_sent - 1, dst_rank, dst_expert_local_idx);
+            // nvshmemi_ibgda_amo_nonfetch_add(reinterpret_cast<int*>(dst_ptr), -num_tokens_sent - 1, dst_rank, dst_expert_local_idx);
+            nvshmem_int_atomic_add(reinterpret_cast<int*>(dst_ptr), -num_tokens_sent - 1, dst_rank);
         } else {
             st_release_sys_global(reinterpret_cast<int*>(dst_p2p_ptr), -num_tokens_sent - 1);
         }
@@ -589,7 +594,11 @@ combine(void* combined_x,
             // Issue RDMA
             // NOTES: for zero-copy mode, we assume the data is already in the send buffer
             if (dst_p2p_ptr == 0)
-                nvshmemi_ibgda_put_nbi_warp(dst_ptr, buf_ptr, hidden * sizeof(nv_bfloat16), dst_rank, local_expert_idx, lane_id, token_idx - offset);
+                // nvshmemi_ibgda_put_nbi_warp(dst_ptr, buf_ptr, hidden * sizeof(nv_bfloat16), dst_rank, local_expert_idx, lane_id, token_idx - offset);
+                nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
+                    reinterpret_cast<void*>(buf_ptr),
+                    hidden * sizeof(nv_bfloat16),
+                    dst_rank);
         }
 
         // Put the finishing flag
@@ -600,7 +609,8 @@ combine(void* combined_x,
             auto dst_ptr = reinterpret_cast<uint64_t>(rdma_recv_flag + global_expert_idx);
             auto dst_p2p_ptr = nvshmemi_get_p2p_ptr(dst_ptr, rank, dst_rank);
             if (dst_p2p_ptr == 0) {
-                nvshmemi_ibgda_amo_nonfetch_add(reinterpret_cast<int*>(dst_ptr), 1, dst_rank, local_expert_idx);
+                // nvshmemi_ibgda_amo_nonfetch_add(reinterpret_cast<int*>(dst_ptr), 1, dst_rank, local_expert_idx);
+                nvshmem_int_atomic_add(reinterpret_cast<int*>(dst_ptr), 1, dst_rank);
             } else {
                 st_release_sys_global(reinterpret_cast<int*>(dst_p2p_ptr), 1);
             }

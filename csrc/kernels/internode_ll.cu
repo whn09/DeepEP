@@ -1,6 +1,7 @@
 #include "configs.cuh"
 #include "exception.cuh"
 #include "launch.cuh"
+#include "utils.cuh"
 #include "ibgda_device.cuh"
 
 namespace deep_ep {

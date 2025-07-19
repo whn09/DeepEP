@@ -161,8 +161,8 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
                 const auto dst_p2p_ptr = nvshmemi_get_p2p_ptr(dst_ptr, rank, dst_rank);
                 if (dst_p2p_ptr == 0) {
                     // nvshmemi_ibgda_put_nbi_warp(dst_ptr, src_ptr, num_bytes_per_msg, dst_rank, dst_expert_local_idx, lane_id, slot_idx);
-                    nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
-                                    reinterpret_cast<void*>(src_ptr),
+                    nvshmemx_uint64_put_nbi_warp(reinterpret_cast<uint64_t*>(dst_ptr),
+                                    reinterpret_cast<uint64_t*>(src_ptr),
                                     num_bytes_per_msg,
                                     dst_rank);
                 } else {
@@ -596,8 +596,8 @@ combine(void* combined_x,
             // NOTES: for zero-copy mode, we assume the data is already in the send buffer
             if (dst_p2p_ptr == 0)
                 // nvshmemi_ibgda_put_nbi_warp(dst_ptr, buf_ptr, hidden * sizeof(nv_bfloat16), dst_rank, local_expert_idx, lane_id, token_idx - offset);
-                nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
-                    reinterpret_cast<void*>(buf_ptr),
+                nvshmemx_bfloat16_put_nbi_warp(reinterpret_cast<nv_bfloat16*>(dst_ptr),
+                    reinterpret_cast<nv_bfloat16*>(buf_ptr),
                     hidden * sizeof(nv_bfloat16),
                     dst_rank);
         }

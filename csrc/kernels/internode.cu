@@ -154,7 +154,7 @@ notify_dispatch(const int* num_tokens_per_rank, int* moe_recv_counter_mapped, in
                 //                                 reinterpret_cast<uint64_t>(rdma_recv_num_tokens_mixed.send_buffer(i)),
                 //                                 (NUM_MAX_NVL_PEERS + num_rdma_experts + 1) * sizeof(int),
                 //                                 translate_dst_rdma_rank<kLowLatencyMode>(i, nvl_rank), 0, lane_id, 0);
-                nvshmem_putmem_nbi(rdma_recv_num_tokens_mixed.recv_buffer(rdma_rank),
+                nvshmemx_int_put_nbi_warp(rdma_recv_num_tokens_mixed.recv_buffer(rdma_rank),
                                 rdma_recv_num_tokens_mixed.send_buffer(i),
                                 (NUM_MAX_NVL_PEERS + num_rdma_experts + 1) * sizeof(int),
                                 translate_dst_rdma_rank<kLowLatencyMode>(i, nvl_rank));
@@ -497,7 +497,7 @@ dispatch(int4* recv_x, float* recv_x_scales, int64_t* recv_topk_idx, float* recv
                 //                                   sizeof(int) * (NUM_MAX_NVL_PEERS * 2 + 2),
                 //                                   translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank),
                 //                                   channel_id, lane_id, 0);
-                nvshmem_putmem_nbi(rdma_channel_meta.recv_buffer(rdma_rank),
+                nvshmemx_int_put_nbi_warp(rdma_channel_meta.recv_buffer(rdma_rank),
                                 rdma_channel_meta.send_buffer(dst_rdma_rank),
                                 sizeof(int) * (NUM_MAX_NVL_PEERS * 2 + 2),
                                 translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank));
@@ -686,8 +686,8 @@ dispatch(int4* recv_x, float* recv_x_scales, int64_t* recv_topk_idx, float* recv
                     const auto src_ptr = reinterpret_cast<uint64_t>(rdma_channel_data.send_buffer(dst_rdma_rank) + dst_slot_idx * num_bytes_per_token);
                     // nvshmemi_ibgda_put_nbi_warp<true>(dst_ptr, src_ptr, num_bytes_per_msg,
                     //                                   translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), channel_id, lane_id, 0);
-                    nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
-                                    reinterpret_cast<void*>(src_ptr),
+                    nvshmemx_uint64_put_nbi_warp(reinterpret_cast<uint64_t*>(dst_ptr),
+                                    reinterpret_cast<uint64_t*>(src_ptr),
                                     num_bytes_per_msg,
                                     translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank));
                 } else {
@@ -1656,8 +1656,8 @@ combine(int4* combined_x, float* combined_topk_weights,
                         const auto src_ptr = reinterpret_cast<uint64_t>(rdma_channel_data.send_buffer(dst_rdma_rank) + rdma_slot_idx * num_bytes_per_token);
                         // nvshmemi_ibgda_put_nbi_warp<true>(dst_ptr, src_ptr, num_bytes_per_msg,
                         //                                   translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), channel_id, lane_id, 0);
-                        nvshmem_putmem_nbi(reinterpret_cast<void*>(dst_ptr),
-                                        reinterpret_cast<void*>(src_ptr),
+                        nvshmemx_uint64_put_nbi_warp(reinterpret_cast<uint64_t*>(dst_ptr),
+                                        reinterpret_cast<uint64_t*>(src_ptr),
                                         num_bytes_per_msg,
                                         translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank));
                     } else {

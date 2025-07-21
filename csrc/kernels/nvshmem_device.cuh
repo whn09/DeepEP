@@ -13,6 +13,7 @@ __device__ __forceinline__ uint64_t nvshmemi_get_p2p_ptr(const uint64_t& ptr, co
         return ptr;
     
     // 使用nvshmem_ptr获取远程指针
+    // 注意：在EFA环境中，这可能返回NULL，因为EFA可能不支持直接内存访问
     void* remote_ptr = nvshmem_ptr(reinterpret_cast<void*>(ptr), dst_rank);
     if (remote_ptr == NULL)
         return 0;
@@ -24,13 +25,16 @@ __device__ __forceinline__ uint64_t nvshmemi_get_p2p_ptr(const uint64_t& ptr, co
 template <bool kAlwaysDoPostSend = false>
 __device__ __forceinline__ void
 nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, int dst_pe, int qp_id, int lane_id, int message_idx) {
-    // 使用nvshmemx_uint64_put_nbi_warp替代
-    nvshmemx_uint64_put_nbi_warp(
-        reinterpret_cast<uint64_t*>(req_rptr),
-        reinterpret_cast<const uint64_t*>(req_lptr),
-        bytes / sizeof(uint64_t),
-        dst_pe
-    );
+    // 在EFA环境中，我们应该使用标准的nvshmem_putmem_nbi函数
+    // 对于warp级别的操作，使用nvshmemx_uint64_put_nbi_warp
+    if (lane_id == 0) {  // 只让一个线程执行put操作
+        nvshmem_putmem_nbi(reinterpret_cast<void*>(req_rptr),
+                          reinterpret_cast<const void*>(req_lptr),
+                          bytes,
+                          dst_pe);
+    }
+    // 确保warp中的所有线程同步
+    __syncwarp();
 }
 
 // 替代nvshmemi_ibgda_amo_nonfetch_add函数
@@ -47,7 +51,7 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
 // 替代nvshmemi_ibgda_quiet函数
 __device__ __forceinline__ void
 nvshmemi_ibgda_quiet(int dst_pe, int qp_id) {
-    // 使用nvshmem_quiet确保所有操作完成
+    // 在EFA环境中，我们应该使用标准的nvshmem_quiet函数
     nvshmem_quiet();
 }
 

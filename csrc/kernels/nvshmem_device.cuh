@@ -48,23 +48,4 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
     }
 }
 
-// 替代nvshmemi_ibgda_quiet函数
-__device__ __forceinline__ void
-nvshmemi_ibgda_quiet(int dst_pe, int qp_id) {
-    // 在EFA环境中，我们应该使用标准的nvshmem_quiet函数
-    nvshmem_quiet();
-}
-
-// 替代translate_dst_rdma_rank函数的实现
-template <bool kLowLatencyMode>
-__forceinline__ __device__ int translate_dst_rdma_rank(const int dst_rdma_rank, const int nvl_rank) {
-    return kLowLatencyMode ? (dst_rdma_rank * NUM_MAX_NVL_PEERS + nvl_rank) : dst_rdma_rank;
-}
-
-// // 替代nvshmem_sync_with_same_gpu_idx函数的实现
-// template <bool kLowLatencyMode>
-// __forceinline__ __device__ void nvshmem_sync_with_same_gpu_idx(const nvshmem_team_t& rdma_team) {
-//     kLowLatencyMode ? nvshmem_sync(rdma_team) : nvshmem_sync_all();
-// }
-
 } // namespace deep_ep

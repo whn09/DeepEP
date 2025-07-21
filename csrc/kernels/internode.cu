@@ -154,10 +154,10 @@ notify_dispatch(const int* num_tokens_per_rank, int* moe_recv_counter_mapped, in
                 //                                 reinterpret_cast<uint64_t>(rdma_recv_num_tokens_mixed.send_buffer(i)),
                 //                                 (NUM_MAX_NVL_PEERS + num_rdma_experts + 1) * sizeof(int),
                 //                                 translate_dst_rdma_rank<kLowLatencyMode>(i, nvl_rank), 0, lane_id, 0);
-                nvshmemx_int_put_nbi_warp(rdma_recv_num_tokens_mixed.recv_buffer(rdma_rank),
+                nvshmem_int_put_nbi(rdma_recv_num_tokens_mixed.recv_buffer(rdma_rank),
                                 rdma_recv_num_tokens_mixed.send_buffer(i),
                                 (NUM_MAX_NVL_PEERS + num_rdma_experts + 1) * sizeof(int),
-                                translate_dst_rdma_rank<kLowLatencyMode>(i, nvl_rank));
+                                translate_dst_rdma_rank<kLowLatencyMode>(i, nvl_rank));  // nvshmemx_int_put_nbi_warp
 
             } else { 
                 UNROLLED_WARP_COPY(1, lane_id, NUM_MAX_NVL_PEERS + num_rdma_experts + 1, 
@@ -491,6 +491,9 @@ dispatch(int4* recv_x, float* recv_x_scales, int64_t* recv_topk_idx, float* recv
             }
             __syncwarp();
 
+            printf("DeepEP dispatch RDMA sender log, channel_id: %d, RDMA: %d, nvl: %d, dst RDMA lane: %d, dst RDMA: %d\n",
+                channel_id, rdma_rank, nvl_rank, lane_id, dst_rdma_rank);
+
             // Issue RDMA for non-local ranks
             if (dst_rdma_rank != rdma_rank) {
                 // nvshmemi_ibgda_put_nbi_warp<true>(reinterpret_cast<uint64_t>(rdma_channel_meta.recv_buffer(rdma_rank)),
@@ -498,10 +501,10 @@ dispatch(int4* recv_x, float* recv_x_scales, int64_t* recv_topk_idx, float* recv
                 //                                   sizeof(int) * (NUM_MAX_NVL_PEERS * 2 + 2),
                 //                                   translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank),
                 //                                   channel_id, lane_id, 0);
-                nvshmemx_int_put_nbi_warp(rdma_channel_meta.recv_buffer(rdma_rank),
+                nvshmem_int_put_nbi(rdma_channel_meta.recv_buffer(rdma_rank),
                                 rdma_channel_meta.send_buffer(dst_rdma_rank),
                                 sizeof(int) * (NUM_MAX_NVL_PEERS * 2 + 2),
-                                translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank));
+                                translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank));  // nvshmemx_int_put_nbi_warp
             }
         }
         nvshmem_fence();

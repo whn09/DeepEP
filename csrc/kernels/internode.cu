@@ -112,11 +112,11 @@ notify_dispatch(const int* num_tokens_per_rank, int* moe_recv_counter_mapped, in
         //     nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), qp_id);
         // }
         for (int i = thread_id; i < (kNumRDMARanks - 1); i += num_threads) {
-            auto dst_rdma_rank = (i + rdma_rank + 1) % kNumRDMARanks;
             // 对每个目标 rank 调用一次 quiet
-            if (i == thread_id) {  // 避免重复调用
-                nvshmem_quiet();
-            }
+            // if (i == thread_id) {  // 避免重复调用
+            //     nvshmem_quiet();
+            // }
+            nvshmem_quiet();
         }
         __syncthreads();
 
@@ -1096,9 +1096,10 @@ __global__ void cached_notify(const int rdma_clean_offset, const int rdma_num_in
         for (int i = thread_id; i < (num_rdma_ranks - 1); i += num_threads) {
             auto dst_rdma_rank = (i + rdma_rank + 1) % num_rdma_ranks;
             // 对每个目标 rank 调用一次 quiet
-            if (i == thread_id) {  // 避免重复调用
-                nvshmem_quiet();
-            }
+            // if (i == thread_id) {  // 避免重复调用
+            //     nvshmem_quiet();
+            // }
+            nvshmem_quiet();
         }
         __syncthreads();
 

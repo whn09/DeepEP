@@ -483,8 +483,8 @@ dispatch(int4* recv_x, float* recv_x_scales, int64_t* recv_topk_idx, float* recv
             }
             __syncwarp();
 
-            printf("DeepEP dispatch RDMA sender log, channel_id: %d, RDMA: %d, nvl: %d, dst RDMA lane: %d, dst RDMA: %d\n",
-                channel_id, rdma_rank, nvl_rank, lane_id, dst_rdma_rank);
+            // printf("DeepEP dispatch RDMA sender log, channel_id: %d, RDMA: %d, nvl: %d, dst RDMA lane: %d, dst RDMA: %d\n",
+            //     channel_id, rdma_rank, nvl_rank, lane_id, dst_rdma_rank);
 
             // Issue RDMA for non-local ranks
             if (dst_rdma_rank != rdma_rank) {

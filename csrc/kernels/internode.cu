@@ -3,7 +3,9 @@
 #include "exception.cuh"
 #include "launch.cuh"
 #include "utils.cuh"
-#include "nvshmem_device.cuh"
+// #include "ibgda_device.cuh"
+// #include "nvshmem_device.cuh"
+# include "efa_device.cuh"
 
 namespace deep_ep {
 

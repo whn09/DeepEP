@@ -29,8 +29,7 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
         reinterpret_cast<uint64_t*>(req_rptr),
         reinterpret_cast<const uint64_t*>(req_lptr),
         bytes / sizeof(uint64_t),
-        dst_pe,
-        lane_id
+        dst_pe
     );
 }
 
@@ -58,10 +57,10 @@ __forceinline__ __device__ int translate_dst_rdma_rank(const int dst_rdma_rank, 
     return kLowLatencyMode ? (dst_rdma_rank * NUM_MAX_NVL_PEERS + nvl_rank) : dst_rdma_rank;
 }
 
-// 替代nvshmem_sync_with_same_gpu_idx函数的实现
-template <bool kLowLatencyMode>
-__forceinline__ __device__ void nvshmem_sync_with_same_gpu_idx(const nvshmem_team_t& rdma_team) {
-    kLowLatencyMode ? nvshmem_sync(rdma_team) : nvshmem_sync_all();
-}
+// // 替代nvshmem_sync_with_same_gpu_idx函数的实现
+// template <bool kLowLatencyMode>
+// __forceinline__ __device__ void nvshmem_sync_with_same_gpu_idx(const nvshmem_team_t& rdma_team) {
+//     kLowLatencyMode ? nvshmem_sync(rdma_team) : nvshmem_sync_all();
+// }
 
 } // namespace deep_ep

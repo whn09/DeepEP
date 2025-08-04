@@ -5,12 +5,14 @@ import importlib
 import importlib.resources
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# Wheel specific: The wheels only include the soname of the host library (libnvshmem_host.so.X)
+
+# Wheel specific: the wheels only include the soname of the host library `libnvshmem_host.so.X`
 def get_nvshmem_host_lib_name():
     for path in importlib.resources.files('nvidia.nvshmem').iterdir():
         for file in path.rglob('libnvshmem_host.so.*'):
             return file.name
     raise ModuleNotFoundError('libnvshmem_host.so not found')
+
 
 if __name__ == '__main__':
     disable_nvshmem = False

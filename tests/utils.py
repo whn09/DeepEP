@@ -52,6 +52,8 @@ def per_token_cast_to_fp8(x: torch.Tensor):
 
 
 def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
+    if x_fp8.numel() == 0:
+        return x_fp8.to(torch.bfloat16)
     if x_scales.dtype == torch.int:
         x_scales = x_scales.view(dtype=torch.uint8).to(torch.int) << 23
         x_scales = x_scales.view(dtype=torch.float)

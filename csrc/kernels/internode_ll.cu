@@ -645,7 +645,6 @@ combine(void* combined_x,
         // Initialize m-barriers
         if (lane_id < kNumStages) {
             mbarrier_init(full_barriers[lane_id], 1);
-            fence_view_async_shared();
             fence_barrier_init();
         }
         __syncwarp();
@@ -678,7 +677,7 @@ combine(void* combined_x,
                 const auto cpy_dst_int4_ptr = dst_p2p_ptr == 0 ? reinterpret_cast<int4*>(buf_ptr) : reinterpret_cast<int4*>(dst_p2p_ptr);
 
                 // Prefetch
-                if (elect_one_sync(lane_id))
+                if (elect_one_sync())
                     tma_load_and_arrive(0, cpy_src_int4_ptr, get_num_tma_bytes(0));
                 __syncwarp();
 
@@ -688,7 +687,7 @@ combine(void* combined_x,
                     // Load the next iteration
                     const int& stage_idx = iter_idx % kNumStages;
                     const int& next_stage_idx = (iter_idx + 1) % kNumStages;
-                    if (iter_idx + 1 < kNumIters and elect_one_sync(lane_id)) {
+                    if (iter_idx + 1 < kNumIters and elect_one_sync()) {
                         tma_store_wait<kNumStages - kNumPrefetch - 1>();
                         const auto& offset_int4 = i + 32 * kNumSendUnrolls;
                         tma_load_and_arrive(next_stage_idx, cpy_src_int4_ptr + offset_int4, get_num_tma_bytes(offset_int4));
@@ -706,12 +705,12 @@ combine(void* combined_x,
                             // NOTES: only the leader lane will write the result
                             (i % kNumInt4PerDivision == 0) ? meta_buffers + i / kNumInt4PerDivision : nullptr,
                             lane_id);
-                        if (elect_one_sync(lane_id))
+                        if (elect_one_sync())
                             tma_store_1d(tma_buffers[stage_idx], reinterpret_cast<uint8_t*>(cpy_dst_int4_ptr) + tma_offset_bytes, num_tma_bytes);
                         tma_offset_bytes += num_tma_bytes;
                     } else {
                         // BF16 original values
-                        if (elect_one_sync(lane_id))
+                        if (elect_one_sync())
                             tma_store_1d(tma_buffers[stage_idx], cpy_dst_int4_ptr + i, get_num_tma_bytes(i));
                     }
                     __syncwarp();
@@ -720,12 +719,12 @@ combine(void* combined_x,
                 // Store metadata (min/max values) for LogFMT
                 if constexpr (kUseLogFMT) {
                     num_send_bytes = tma_offset_bytes;
-                    if (elect_one_sync(lane_id))
+                    if (elect_one_sync())
                         tma_store_1d(meta_buffers, cpy_dst_int4_ptr, kNumMetaBytes);
                 }
 
                 // Flush all stores
-                tma_store_wait();
+                tma_store_wait<0>();
                 __syncwarp();
             }
 
@@ -754,7 +753,6 @@ combine(void* combined_x,
         // Destroy m-barriers
         if (lane_id < kNumStages) {
             mbarrier_inval(full_barriers[lane_id]);
-            fence_view_async_shared();
             fence_barrier_init();
         }
         __syncwarp();
@@ -842,7 +840,7 @@ combine(void* combined_x,
                             buffer, reinterpret_cast<float2*>(log_amax_buffers[stage_idx]),
                             reinterpret_cast<float2*>(log_amin_buffers[stage_idx]), cast_info_buffers[stage_idx], lane_id);
                     }
-                    if (elect_one_sync(lane_id)) {
+                    if (elect_one_sync()) {
                         int num_casted = 0;
                         if constexpr (kUseLogFMT) {
                             const auto& info = cast_info_buffers[stage_idx][num_decode_warps - 1];
@@ -891,7 +889,7 @@ combine(void* combined_x,
                         );
                     }
 
-                    if (elect_one_sync(lane_id))
+                    if (elect_one_sync())
                         mbarrier_arrive(empty_barriers[stage_idx]);
                     stage_idx = (stage_idx + 1) % kNumStages;
                 }
@@ -903,7 +901,7 @@ combine(void* combined_x,
                     tma_st_buffers[decode_warp_idx][kNumRecvUnrolls * 4 * lane_id + k] = *reinterpret_cast<uint32_t*>(&combined_pack);
                 }
                 tma_store_fence();
-                if (elect_one_sync(lane_id)) {
+                if (elect_one_sync()) {
                     tma_store_1d(tma_st_buffers[decode_warp_idx],
                                  static_cast<int4*>(combined_x) + token_idx * hidden_bf16_int4 + decode_warp_idx * kNumRecvUnrolls * 32,
                                  kNumBF16PerWarpBytes);
@@ -911,9 +909,6 @@ combine(void* combined_x,
                 __syncwarp();
             }
         }
-
-        // Flush all stores
-        tma_store_wait<0>();
     }
 }
 

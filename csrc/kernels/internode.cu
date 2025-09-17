@@ -43,7 +43,7 @@ int get_source_meta_bytes() {
 
 __host__ __device__ __forceinline__
 int get_num_bytes_per_token(int hidden_int4, int num_scales, int num_topk_idx, int num_topk_weights) {
-    return static_cast<int>(align(hidden_int4 * sizeof(int4) + sizeof(SourceMeta) + num_scales * sizeof(float) + num_topk_idx * sizeof(int) + num_topk_weights * sizeof(float), sizeof(int4)));
+    return static_cast<int>(align_up(hidden_int4 * sizeof(int4) + sizeof(SourceMeta) + num_scales * sizeof(float) + num_topk_idx * sizeof(int) + num_topk_weights * sizeof(float), sizeof(int4)));
 }
 
 __host__ __device__ __forceinline__
@@ -1516,8 +1516,8 @@ combine(int4* combined_x, float* combined_topk_weights,
                     // Load data
                     auto shifted_x_buffers = nvl_channel_x.buffer() + dst_slot_idx * num_bytes_per_token;
                     auto shifted_x = x + token_idx * hidden_int4;
+                    tma_store_wait<0>();
                     if (elect_one_sync()) {
-                        tma_store_wait<0>();
                         tma_load_1d(tma_buffer, shifted_x, tma_mbarrier, hidden_bytes);
                         mbarrier_arrive_and_expect_tx(tma_mbarrier, hidden_bytes);
                     }

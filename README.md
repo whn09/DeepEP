@@ -325,6 +325,10 @@ For better performance on your cluster, we recommend to run all the tests and us
 
 This code repository is released under [the MIT License](LICENSE), except for codes that reference NVSHMEM (including `csrc/kernels/ibgda_device.cuh` and `third-party/nvshmem.patch`), which are subject to [NVSHMEM SLA](https://docs.nvidia.com/nvshmem/api/sla.html).
 
+## Experimental Branchs
+
+- [Eager](https://github.com/deepseek-ai/DeepEP/pull/437) - Using a low-latency protocol removes the extra RTT latency introduced by RDMA atomic OPs
+
 ## Community Forks
 
 - [Infrawaves/DeepEP_ibrc_dual-ports_multiQP](https://github.com/Infrawaves/DeepEP_ibrc_dual-ports_multiQP) - Adds multi-QP solution and dual-port NIC support in IBRC transport

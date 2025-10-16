@@ -54,7 +54,7 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
 
 // 实现 nvshmemi_ibgda_rma_p 函数
 // RMA Put操作：将单个int值写入远程PE的指定地址
-// 这是一个阻塞的单边写操作，类似于RDMA的内联写入
+// 这是一个非阻塞的单边写操作，类似于RDMA的内联写入
 //
 // 参数：
 //   - rptr: 远程PE上的目标地址（指向int类型）
@@ -68,20 +68,36 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
 // 原IBGDA版本直接操作InfiniBand QP（Queue Pair）硬件，构造RDMA写入WQE（Work Queue Element）。
 // 本实现使用NVSHMEM的标准API来实现相同的语义：单边写入一个int值到远程PE。
 //
+// 重要说明 - 同步语义：
+// - nvshmem_int_p 是一个非阻塞操作，只保证操作被提交到发送队列
+// - 与原IBGDA实现类似，此函数返回后数据可能尚未到达远端
+// - 调用者需要在适当时机调用 nvshmem_quiet() 来确保所有操作完成
+// - 这与原IBGDA的语义一致：需要通过 barrier 中的 nvshmem_quiet() 来同步
+//
 // 在EFA环境中的工作方式：
 // - NVSHMEM会自动选择最优传输路径（EFA RDMA或其他底层传输）
 // - 对于单个int的写入，nvshmem_int_p是最高效的选择
 // - 操作完成后，远程PE可以看到更新后的值
 __device__ __forceinline__ void nvshmemi_ibgda_rma_p(
     int* rptr, const int value, int dst_pe, int qp_id, uint32_t imm = std::numeric_limits<uint32_t>::max()) {
-    // 使用nvshmem的标准put操作来实现单个int值的写入
-    // nvshmem_int_p 是一个阻塞的RMA put操作，用于写入单个int值
-    // 这个操作在NVSHMEM内部会被转换为适合底层网络的传输操作（例如EFA的RDMA写入）
-    nvshmem_int_p(rptr, value, dst_pe);
+    // 关键修正：rptr参数实际上是本地地址，需要在远程节点上找到对应的对称堆位置
+    // 原IBGDA实现中，rptr是通过特殊映射得到的远程地址
+    // 在NVSHMEM中，我们需要找到对称堆中的相对偏移
 
-    // 注意：原IBGDA实现中的imm参数用于RDMA写入时携带立即数
-    // 在NVSHMEM标准API中，没有直接支持立即数的接口
-    // 如果需要立即数功能，可能需要通过其他机制（如额外的信号传递）来实现
+    // 计算对称堆偏移量
+    // 假设sync_buffer_ptr是在对称堆中分配的
+    auto heap_base = nvshmemi_device_state_d.heap_base;
+    auto offset = reinterpret_cast<uint64_t>(rptr) - reinterpret_cast<uint64_t>(heap_base);
+
+    // 使用偏移量计算远程地址
+    int* remote_ptr = reinterpret_cast<int*>(reinterpret_cast<uint64_t>(heap_base) + offset);
+
+    // 使用nvshmem的标准put操作来实现单个int值的写入
+    // nvshmem_int_p 是一个非阻塞的RMA put操作，用于写入单个int值
+    nvshmem_int_p(remote_ptr, value, dst_pe);
+
+    // 重要：nvshmem_int_p是非阻塞操作，必须在后续调用nvshmem_quiet()来确保完成
+    // 在当前代码中，barrier函数会调用nvshmem_quiet()来同步所有操作
 }
 
 } // namespace deep_ep

@@ -34,8 +34,8 @@ __forceinline__ __device__ void barrier(int thread_id, int rank, int num_ranks, 
     //     auto qp_id = i % qps_per_rank;
     //     nvshmemi_ibgda_quiet(dst_rank, qp_id);
     // }
-    for (int i = thread_id; i < qps_per_rank * (num_ranks - 1); i += kNumThreads) {
-        auto dst_rank = (rank + 1 + i / qps_per_rank) % num_ranks;
+    for (int i = thread_id; i < (num_ranks - 1); i += kNumThreads) {
+        auto dst_rank = (rank + 1 + i) % num_ranks;
         // 对每个目标 rank 调用一次 quiet
         // if (i == thread_id) {  // 避免重复调用
         //     nvshmem_quiet();

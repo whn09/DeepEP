@@ -57,7 +57,7 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
 // 这是一个非阻塞的单边写操作，类似于RDMA的内联写入
 //
 // 参数：
-//   - rptr: 远程PE上的目标地址（指向int类型）
+//   - rptr: 本地对称堆中的地址，需要写入到远程PE的对应位置
 //   - value: 要写入的int值
 //   - dst_pe: 目标PE（进程）的编号
 //   - qp_id: 队列对ID（在nvshmem中不使用，保留参数以保持接口兼容）
@@ -80,21 +80,10 @@ nvshmemi_ibgda_amo_nonfetch_add(void *rptr, const int& value, int pe, int qp_id,
 // - 操作完成后，远程PE可以看到更新后的值
 __device__ __forceinline__ void nvshmemi_ibgda_rma_p(
     int* rptr, const int value, int dst_pe, int qp_id, uint32_t imm = std::numeric_limits<uint32_t>::max()) {
-    // 关键修正：rptr参数实际上是本地地址，需要在远程节点上找到对应的对称堆位置
-    // 原IBGDA实现中，rptr是通过特殊映射得到的远程地址
-    // 在NVSHMEM中，我们需要找到对称堆中的相对偏移
-
-    // 计算对称堆偏移量
-    // 假设sync_buffer_ptr是在对称堆中分配的
-    auto heap_base = nvshmemi_device_state_d.heap_base;
-    auto offset = reinterpret_cast<uint64_t>(rptr) - reinterpret_cast<uint64_t>(heap_base);
-
-    // 使用偏移量计算远程地址
-    int* remote_ptr = reinterpret_cast<int*>(reinterpret_cast<uint64_t>(heap_base) + offset);
-
     // 使用nvshmem的标准put操作来实现单个int值的写入
     // nvshmem_int_p 是一个非阻塞的RMA put操作，用于写入单个int值
-    nvshmem_int_p(remote_ptr, value, dst_pe);
+    // rptr已经是对称堆中的地址，可以直接使用
+    nvshmem_int_p(rptr, value, dst_pe);
 
     // 重要：nvshmem_int_p是非阻塞操作，必须在后续调用nvshmem_quiet()来确保完成
     // 在当前代码中，barrier函数会调用nvshmem_quiet()来同步所有操作

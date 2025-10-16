@@ -27,12 +27,20 @@ __forceinline__ __device__ void barrier(int thread_id, int rank, int num_ranks, 
     EP_DEVICE_ASSERT(kNumThreads >= num_ranks);
 
     // Quiet all QPs
-    auto qps_per_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
+    // auto qps_per_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
 
+    // for (int i = thread_id; i < qps_per_rank * (num_ranks - 1); i += kNumThreads) {
+    //     auto dst_rank = (rank + 1 + i / qps_per_rank) % num_ranks;
+    //     auto qp_id = i % qps_per_rank;
+    //     nvshmemi_ibgda_quiet(dst_rank, qp_id);
+    // }
     for (int i = thread_id; i < qps_per_rank * (num_ranks - 1); i += kNumThreads) {
         auto dst_rank = (rank + 1 + i / qps_per_rank) % num_ranks;
-        auto qp_id = i % qps_per_rank;
-        nvshmemi_ibgda_quiet(dst_rank, qp_id);
+        // 对每个目标 rank 调用一次 quiet
+        // if (i == thread_id) {  // 避免重复调用
+        //     nvshmem_quiet();
+        // }
+        nvshmem_quiet();
     }
 
     // Update local counter

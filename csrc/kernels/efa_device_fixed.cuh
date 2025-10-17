@@ -11,6 +11,28 @@
 namespace deep_ep {
 
 // ============================================================================
+// State Management - Simplified for EFA
+// ============================================================================
+
+// Simplified device state structure for EFA
+// Unlike IBGDA which needs detailed QP management, EFA uses NVSHMEM's abstraction
+typedef struct {
+    int num_rc_per_pe;              // Number of communication channels per PE
+    int num_devices_initialized;    // Number of devices (GPUs) initialized
+} nvshmemi_efa_device_state_t;
+
+// Global device state (should be initialized by host code)
+// For EFA, these values typically match the number of channels/devices configured
+// Declaration only - definition is in efa_device_state.cu
+extern __device__ nvshmemi_efa_device_state_t nvshmemi_efa_device_state_d;
+
+// Get EFA device state
+// This function provides compatibility with IBGDA code that calls ibgda_get_state()
+__device__ static __forceinline__ nvshmemi_efa_device_state_t* ibgda_get_state() {
+    return &nvshmemi_efa_device_state_d;
+}
+
+// ============================================================================
 // P2P Pointer Translation
 // ============================================================================
 

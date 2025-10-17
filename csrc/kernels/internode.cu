@@ -5,10 +5,9 @@
 #include "configs.cuh"
 #include "exception.cuh"
 // #include "ibgda_device.cuh"
+#include "efa_device_fixed.cuh"
 #include "launch.cuh"
 #include "utils.cuh"
-#include "nvshmem_device.cuh"
-// #include "efa_device.cuh"
 
 namespace deep_ep {
 
@@ -132,14 +131,11 @@ __global__ void notify_dispatch(const int* num_tokens_per_rank,
 
         // waiting for all previous inflight wrs to complete,
         // in case of rewriting cleared rdma_buffer
-        // auto qps_per_rdma_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
-        // for (int i = thread_id; i < qps_per_rdma_rank * (kNumRDMARanks - 1); i += num_threads) {
-        //     auto dst_rdma_rank = (i / qps_per_rdma_rank + rdma_rank + 1) % kNumRDMARanks;
-        //     auto qp_id = i % qps_per_rdma_rank;
-        //     nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), qp_id);
-        // }
-        if (thread_id < (kNumRDMARanks - 1)) {
-            nvshmem_quiet();
+        auto qps_per_rdma_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
+        for (int i = thread_id; i < qps_per_rdma_rank * (kNumRDMARanks - 1); i += num_threads) {
+            auto dst_rdma_rank = (i / qps_per_rdma_rank + rdma_rank + 1) % kNumRDMARanks;
+            auto qp_id = i % qps_per_rdma_rank;
+            nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), qp_id);
         }
         __syncthreads();
 
@@ -191,14 +187,11 @@ __global__ void notify_dispatch(const int* num_tokens_per_rank,
                                    st_na_global);
             }
         }
-        nvshmem_fence();
         __syncthreads();
 
         // Wait previous operations to be finished
-        if (thread_id < kNumRDMARanks and thread_id != rdma_rank) {
-            // 使用nvshmem_quiet确保所有操作完成
-            nvshmem_quiet();
-        }
+        if (thread_id < kNumRDMARanks and thread_id != rdma_rank)
+            nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(thread_id, nvl_rank), 0);
         __syncthreads();
 
         // Barrier
@@ -487,7 +480,7 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
     const bool is_forwarder = sm_id % 2 == 0;
     const auto rdma_rank = rank / NUM_MAX_NVL_PEERS, nvl_rank = rank % NUM_MAX_NVL_PEERS;
 
-    // EP_DEVICE_ASSERT(ibgda_get_state()->num_rc_per_pe == num_channels or ibgda_get_state()->num_rc_per_pe >= num_sms);
+    EP_DEVICE_ASSERT(ibgda_get_state()->num_rc_per_pe == num_channels or ibgda_get_state()->num_rc_per_pe >= num_sms);
 
     const auto role_meta = [=]() -> std::pair<WarpRole, int> {
         if (is_forwarder) {
@@ -605,9 +598,6 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
             }
             __syncwarp();
 
-            // printf("DeepEP dispatch RDMA sender log, channel_id: %d, RDMA: %d, nvl: %d, dst RDMA lane: %d, dst RDMA: %d\n",
-            //     channel_id, rdma_rank, nvl_rank, lane_id, dst_rdma_rank);
-
             // Issue RDMA for non-local ranks
             if (dst_rdma_rank != rdma_rank) {
                 nvshmemi_ibgda_put_nbi_warp<true>(reinterpret_cast<uint64_t>(rdma_channel_meta.recv_buffer(rdma_rank)),
@@ -619,7 +609,6 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
                                                   0);
             }
         }
-        nvshmem_fence();
         sync_rdma_sender_smem();
 
         // Iterate over tokens and copy into buffer
@@ -824,7 +813,6 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
                                                       channel_id,
                                                       lane_id,
                                                       0);
-                    nvshmem_fence();
                 } else {
                     // Lighter fence for local RDMA rank
                     memory_fence();
@@ -1323,19 +1311,11 @@ __global__ void cached_notify(const int rdma_clean_offset,
 
     // Using two SMs, which clean the RDMA/NVL buffer respectively
     if (sm_id == 0) {
-        // auto qps_per_rdma_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
-        // for (int i = thread_id; i < qps_per_rdma_rank * (num_rdma_ranks - 1); i += num_threads) {
-        //     auto dst_rdma_rank = (i / qps_per_rdma_rank + rdma_rank + 1) % num_rdma_ranks;
-        //     auto qp_id = i % qps_per_rdma_rank;
-        //     nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), qp_id);
-        // }
-        for (int i = thread_id; i < (num_rdma_ranks - 1); i += num_threads) {
-            auto dst_rdma_rank = (i + rdma_rank + 1) % num_rdma_ranks;
-            // 对每个目标 rank 调用一次 quiet
-            // if (i == thread_id) {  // 避免重复调用
-            //     nvshmem_quiet();
-            // }
-            nvshmem_quiet();
+        auto qps_per_rdma_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
+        for (int i = thread_id; i < qps_per_rdma_rank * (num_rdma_ranks - 1); i += num_threads) {
+            auto dst_rdma_rank = (i / qps_per_rdma_rank + rdma_rank + 1) % num_rdma_ranks;
+            auto qp_id = i % qps_per_rdma_rank;
+            nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(dst_rdma_rank, nvl_rank), qp_id);
         }
         __syncthreads();
 
@@ -2115,7 +2095,6 @@ __global__ void __launch_bounds__((kNumForwarders + 1) * 32, 1) combine(int4* co
                                                           channel_id,
                                                           lane_id,
                                                           0);
-                        nvshmem_fence();
                     } else {
                         memory_fence();
                     }

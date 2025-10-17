@@ -1,10 +1,10 @@
-echo 'options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"' | sudo tee -a /etc/modprobe.d/nvidia.conf
-sudo update-initramfs -u
-sudo reboot
+# echo 'options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"' | sudo tee -a /etc/modprobe.d/nvidia.conf
+# sudo update-initramfs -u
+# sudo reboot
 
 sudo apt update
 sudo apt install -y ninja-build
-sudo apt install -y python3.10-venv
+# sudo apt install -y python3.10-venv
 
 export CUDA_HOME=/usr/local/cuda
 export NVSHMEM_IBGDA_SUPPORT=1

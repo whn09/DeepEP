@@ -6,6 +6,9 @@ sudo apt update
 sudo apt install -y ninja-build
 # sudo apt install -y python3.10-venv
 
+git clone https://github.com/NVIDIA/nvshmem
+cd nvshmem
+
 export CUDA_HOME=/usr/local/cuda
 export NVSHMEM_IBGDA_SUPPORT=1
 export NVSHMEM_SHMEM_SUPPORT=0

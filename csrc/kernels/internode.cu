@@ -191,7 +191,7 @@ __global__ void notify_dispatch(const int* num_tokens_per_rank,
                                    st_na_global);
             }
         }
-        nvshmem_fence();
+        // nvshmem_fence();
         __syncthreads();
 
         // Wait previous operations to be finished
@@ -621,7 +621,7 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
                                                   0);
             }
         }
-        nvshmem_fence();
+        // nvshmem_fence();
         sync_rdma_sender_smem();
 
         // Iterate over tokens and copy into buffer
@@ -826,7 +826,7 @@ __global__ void __launch_bounds__(((kNumDispatchRDMASenderWarps + 1 + NUM_MAX_NV
                                                       channel_id,
                                                       lane_id,
                                                       0);
-                    nvshmem_fence();
+                    // nvshmem_fence();
                 } else {
                     // Lighter fence for local RDMA rank
                     memory_fence();
@@ -2117,7 +2117,7 @@ __global__ void __launch_bounds__((kNumForwarders + 1) * 32, 1) combine(int4* co
                                                           channel_id,
                                                           lane_id,
                                                           0);
-                        nvshmem_fence();
+                        // nvshmem_fence();
                     } else {
                         memory_fence();
                     }

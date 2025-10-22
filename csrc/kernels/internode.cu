@@ -196,6 +196,8 @@ __global__ void notify_dispatch(const int* num_tokens_per_rank,
 
         // Wait previous operations to be finished
         if (thread_id < kNumRDMARanks and thread_id != rdma_rank) {
+            // nvshmemi_ibgda_quiet(translate_dst_rdma_rank<kLowLatencyMode>(thread_id, nvl_rank), 0);
+
             // 使用nvshmem_quiet确保所有操作完成
             nvshmem_quiet();
         }

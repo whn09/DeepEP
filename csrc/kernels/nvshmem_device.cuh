@@ -36,6 +36,7 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
                           dst_pe);
     }
     // 确保warp中的所有线程同步
+    nvshmem_fence();
     __syncwarp();
 }
 

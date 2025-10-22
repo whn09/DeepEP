@@ -3,8 +3,8 @@
 #include "launch.cuh"
 #include "utils.cuh"
 // #include "ibgda_device.cuh"
-#include "nvshmem_device.cuh"
-// #include "efa_device.cuh"
+// #include "nvshmem_device.cuh"
+#include "efa_device.cuh"
 
 namespace deep_ep {
 
@@ -27,21 +27,22 @@ __forceinline__ __device__ void barrier(int thread_id, int rank, int num_ranks, 
     EP_DEVICE_ASSERT(kNumThreads >= num_ranks);
 
     // Quiet all QPs
-    // auto qps_per_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
+    auto qps_per_rank = ibgda_get_state()->num_rc_per_pe * ibgda_get_state()->num_devices_initialized;
 
-    // for (int i = thread_id; i < qps_per_rank * (num_ranks - 1); i += kNumThreads) {
-    //     auto dst_rank = (rank + 1 + i / qps_per_rank) % num_ranks;
-    //     auto qp_id = i % qps_per_rank;
-    //     nvshmemi_ibgda_quiet(dst_rank, qp_id);
-    // }
-    for (int i = thread_id; i < (num_ranks - 1); i += kNumThreads) {
-        auto dst_rank = (rank + 1 + i) % num_ranks;
-        // 对每个目标 rank 调用一次 quiet
-        // if (i == thread_id) {  // 避免重复调用
-        //     nvshmem_quiet();
-        // }
-        nvshmem_quiet();
+    for (int i = thread_id; i < qps_per_rank * (num_ranks - 1); i += kNumThreads) {
+        auto dst_rank = (rank + 1 + i / qps_per_rank) % num_ranks;
+        auto qp_id = i % qps_per_rank;
+        nvshmemi_ibgda_quiet(dst_rank, qp_id);
     }
+
+    // for (int i = thread_id; i < (num_ranks - 1); i += kNumThreads) {
+    //     auto dst_rank = (rank + 1 + i) % num_ranks;
+    //     // 对每个目标 rank 调用一次 quiet
+    //     // if (i == thread_id) {  // 避免重复调用
+    //     //     nvshmem_quiet();
+    //     // }
+    //     nvshmem_quiet();
+    // }
 
     // Update local counter
     if (thread_id == 0)
@@ -293,6 +294,8 @@ __global__ __launch_bounds__(1024, 1) void dispatch(void* packed_recv_x,
         EP_DEVICE_ASSERT(num_sms > 1);
         if (sm_id == 0) {
             // The first SM is also responsible for checking QPs
+            // NOTE: This assertion is specific to IBGDA where QPs are explicitly managed
+            // For EFA/NVSHMEM, connections are managed internally, so we skip this check
             // EP_DEVICE_ASSERT(ibgda_get_state()->num_rc_per_pe >= num_local_experts);
 
             // The first SM is also responsible for cleaning the next buffer

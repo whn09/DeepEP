@@ -63,7 +63,7 @@ typedef struct {
 
 /**
  * @brief EFA device state structure
- * 
+ *
  * Maintains the global state for EFA device operations, including device
  * context, PE information, and EFA-specific memory registration keys.
  * This structure is shared across all CUDA kernels on a device.
@@ -74,7 +74,12 @@ typedef struct {
     uint32_t local_device_id;              // Local device ID
     uint32_t num_pes;                      // Number of processing elements
     bool use_async_operations;             // Enable asynchronous operation mode
-    
+
+    // Compatibility fields for IBGDA-style queue pair management
+    // For EFA, we use a simplified model where QPs are managed by NVSHMEM
+    uint32_t num_rc_per_pe;                // Number of reliable connections per PE (typically 1 for EFA)
+    uint32_t num_devices_initialized;      // Number of initialized devices (typically 1)
+
     // EFA-specific memory registration keys for RDMA operations
     struct {
         uint32_t *lkeys;                   // Local memory keys array
@@ -103,13 +108,14 @@ typedef struct {
     uint32_t max_send_credits;             // Maximum send credits
 } nvshmemi_efa_device_qp_t;
 
-/**
- * @brief Global EFA device state accessible from device code
- * 
- * This device-side global variable provides access to the EFA device state
- * from within CUDA kernels.
- */
-extern __device__ nvshmemi_efa_device_state_t nvshmemi_efa_device_state_d;
+} // namespace deep_ep
+
+// Declare global EFA device state outside namespace to match linker expectations
+// This variable must be declared at global scope to be accessible across translation units
+// The actual definition is in runtime.cu
+extern __device__ deep_ep::nvshmemi_efa_device_state_t nvshmemi_efa_device_state_d;
+
+namespace deep_ep {
 
 /**
  * @brief Forward declaration of P2P pointer translation function
@@ -126,12 +132,22 @@ __device__ __forceinline__ uint64_t nvshmemi_get_p2p_ptr(const uint64_t& ptr, co
 
 /**
  * @brief Retrieve the global EFA device state
- * 
+ *
  * @return Pointer to the global EFA device state structure
  */
 __device__ static __forceinline__
 nvshmemi_efa_device_state_t* efa_get_state() {
-    return &nvshmemi_efa_device_state_d;
+    return &::nvshmemi_efa_device_state_d;
+}
+
+/**
+ * @brief Retrieve the global EFA device state (IBGDA compatibility alias)
+ *
+ * @return Pointer to the global EFA device state structure
+ */
+__device__ static __forceinline__
+nvshmemi_efa_device_state_t* ibgda_get_state() {
+    return &::nvshmemi_efa_device_state_d;
 }
 
 /**
@@ -448,7 +464,7 @@ __device__ __forceinline__ uint64_t nvshmemi_get_p2p_ptr(const uint64_t& ptr, co
 
 /**
  * @brief Initialize EFA device state
- * 
+ *
  * Sets up the EFA device state structure with values from the global
  * NVSHMEM device state. Should be called once during initialization.
  */
@@ -457,6 +473,11 @@ efa_init_device_state() {
     auto state = efa_get_state();
     state->num_pes = nvshmemi_device_state_d.npes;
     state->use_async_operations = true;
+
+    // Initialize compatibility fields for IBGDA-style code
+    // EFA uses NVSHMEM's internal connection management, so we use simple defaults
+    state->num_rc_per_pe = 1;              // One logical connection per PE
+    state->num_devices_initialized = 1;    // Single device per process
 }
 
 /**
@@ -474,11 +495,64 @@ efa_is_ready() {
 }
 
 /**
+ * @brief RMA Put operation for single int value
+ *
+ * Performs a remote memory write of a single integer value to the specified
+ * processing element. This operation is commonly used in barrier synchronization
+ * and counter updates. The function automatically selects the optimal path:
+ * - NVLink P2P direct write for intra-node communication
+ * - NVSHMEM int_p for inter-node EFA/RDMA communication
+ *
+ * @param rptr Remote pointer to the integer location to write
+ * @param value The integer value to write
+ * @param dst_pe Destination processing element ID
+ * @param qp_id Queue pair ID (used for routing/load balancing)
+ * @param imm Immediate data (optional, for future extensibility)
+ *
+ * @note This is a non-blocking operation. Use nvshmem_quiet() or
+ *       nvshmemi_ibgda_quiet() to ensure completion if ordering is required.
+ * @note The operation uses system-wide memory fence for P2P writes to ensure
+ *       visibility across all processing elements.
+ */
+__device__ __forceinline__ void nvshmemi_ibgda_rma_p(
+    int* rptr, const int value, int dst_pe, int qp_id,
+    uint32_t imm = std::numeric_limits<uint32_t>::max()) {
+
+    // Fast path: check if this is a local write operation
+    if (efa_is_local_pe(dst_pe)) {
+        *rptr = value;
+        __threadfence_system();
+        return;
+    }
+
+    // Check for NVLink P2P capability for intra-node writes
+    uint64_t p2p_ptr = nvshmemi_get_p2p_ptr(reinterpret_cast<uint64_t>(rptr),
+                                           nvshmemi_device_state_d.mype, dst_pe);
+
+    if (p2p_ptr != 0) {
+        // Direct NVLink P2P write with system-wide fence
+        *reinterpret_cast<int*>(p2p_ptr) = value;
+        __threadfence_system();  // Ensure visibility across all PEs
+        return;
+    }
+
+    // Fall back to NVSHMEM put for remote inter-node EFA/RDMA communication
+    // Calculate symmetric heap address on remote PE
+    uint64_t remote_ptr = efa_get_symmetric_heap_ptr(reinterpret_cast<uint64_t>(rptr), dst_pe);
+
+    // Use nvshmem_int_p for efficient single integer write
+    // This is a non-blocking operation optimized for small data transfers
+    nvshmem_int_p(reinterpret_cast<int*>(remote_ptr), value, dst_pe);
+
+    // Note: Caller should use nvshmem_quiet() if completion guarantee is needed
+}
+
+/**
  * @brief Backward-compatible alias for nvshmemi_efa_quiet
- * 
+ *
  * Provides compatibility with legacy code that uses the ibgda naming
  * convention. Simply forwards to the EFA implementation.
- * 
+ *
  * @param dst_pe Destination processing element ID
  * @param qp_id Queue pair ID
  */

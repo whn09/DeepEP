@@ -9,6 +9,11 @@
 #ifndef DISABLE_NVSHMEM
 #include "nvshmem.h"
 // #include "ibgda_device.cuh"
+#include "efa_device.cuh"
+
+// Define the global EFA device state variable outside namespace
+// This is the actual definition - declared extern in efa_device.cuh
+__device__ deep_ep::nvshmemi_efa_device_state_t nvshmemi_efa_device_state_d;
 #endif
 
 namespace deep_ep {

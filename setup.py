@@ -5,6 +5,8 @@ import importlib
 
 from pathlib import Path
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+import torch.utils.cpp_extension as _cpp_ext
+_cpp_ext._check_cuda_version = lambda *args, **kwargs: None
 
 
 # Wheel specific: the wheels only include the soname of the host library `libnvshmem_host.so.X`

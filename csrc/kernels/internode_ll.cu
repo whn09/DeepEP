@@ -3,6 +3,14 @@
 #include "ibgda_device.cuh"
 #include "launch.cuh"
 
+// Compatibility for CUDA 13.0+ where these macros were removed
+#ifndef CUDART_ZERO_BF16
+#define CUDART_ZERO_BF16 __nv_bfloat16_raw{0x0000}
+#endif
+#ifndef CUDART_INF_BF16
+#define CUDART_INF_BF16 __nv_bfloat16_raw{0x7F80}
+#endif
+
 namespace deep_ep {
 
 namespace internode_ll {

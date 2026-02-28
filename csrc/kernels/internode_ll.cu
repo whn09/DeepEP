@@ -2,9 +2,16 @@
 #include "exception.cuh"
 #include "launch.cuh"
 #include "utils.cuh"
+
+#ifdef USE_EFA_DP_DIRECT
+// GPU-direct EFA path via efa-dp-direct (bypasses NVSHMEM entirely)
+#include "efa_dp_direct_device.cuh"
+#else
+// NVSHMEM-based EFA path (uses nvshmem native API)
 // #include "ibgda_device.cuh"
 // #include "nvshmem_device.cuh"
 #include "efa_device.cuh"
+#endif
 
 namespace deep_ep {
 
@@ -93,10 +100,15 @@ __launch_bounds__(kNumThreads, 1) __global__ void clean_low_latency_buffer(int* 
     auto thread_id = static_cast<int>(threadIdx.x);
 
     // Barrier before cleaning (in case of unfinished chunked EP)
+#ifdef USE_EFA_DP_DIRECT
+    // EFA-DP-direct: always use custom barrier (no NVSHMEM barrier available)
+    barrier<kNumThreads>(thread_id, rank, num_ranks, mask_buffer_ptr, sync_buffer_ptr);
+#else
     if (sync_buffer_ptr == nullptr)
         nvshmemx_barrier_all_block();
     else
         barrier<kNumThreads>(thread_id, rank, num_ranks, mask_buffer_ptr, sync_buffer_ptr);
+#endif
 
     // Clean
     #pragma unroll
@@ -107,10 +119,14 @@ __launch_bounds__(kNumThreads, 1) __global__ void clean_low_latency_buffer(int* 
         clean_1[i] = 0;
 
     // Barrier after cleaning (make sure the low-latency mode works fine)
+#ifdef USE_EFA_DP_DIRECT
+    barrier<kNumThreads>(thread_id, rank, num_ranks, mask_buffer_ptr, sync_buffer_ptr);
+#else
     if (sync_buffer_ptr == nullptr)
         nvshmemx_barrier_all_block();
     else
         barrier<kNumThreads>(thread_id, rank, num_ranks, mask_buffer_ptr, sync_buffer_ptr);
+#endif
 }
 
 void clean_low_latency_buffer(int* clean_0,

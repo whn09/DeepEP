@@ -4,17 +4,44 @@
 #include "buffer.cuh"
 #include "configs.cuh"
 #include "exception.cuh"
-// #include "ibgda_device.cuh"
 #include "launch.cuh"
 #include "utils.cuh"
+
+#ifdef USE_EFA_DP_DIRECT
+// GPU-direct EFA path via efa-dp-direct (bypasses NVSHMEM entirely)
+#include "efa_dp_direct_device.cuh"
+#else
+// NVSHMEM-based EFA path
+// #include "ibgda_device.cuh"
 #include "nvshmem_device.cuh"
 // #include "efa_device.cuh"
+#endif
 
 namespace deep_ep {
 
 namespace internode {
 
+#ifdef USE_EFA_DP_DIRECT
+// EFA-DP-direct: no NVSHMEM teams, use placeholder type
+typedef int nvshmem_team_t;
+static __device__ nvshmem_team_t cpu_rdma_team = 0;
+
+template <bool kLowLatencyMode>
+__forceinline__ __device__ void nvshmem_sync_with_same_gpu_idx(const nvshmem_team_t& rdma_team) {
+    // In EFA-DP-direct mode, sync is done via custom barriers + RDMA writes
+    __threadfence_system();
+}
+
+// Placeholder for nvshmem_sync used in normal mode
+__device__ static __forceinline__ void nvshmem_sync(nvshmem_team_t team) {
+    __threadfence_system();
+}
+__device__ static __forceinline__ void nvshmem_sync_all() {
+    __threadfence_system();
+}
+#else
 extern nvshmem_team_t cpu_rdma_team;
+#endif
 
 struct SourceMeta {
     int src_rdma_rank, is_token_in_nvl_rank_bits;

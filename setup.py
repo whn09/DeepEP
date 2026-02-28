@@ -16,10 +16,18 @@ def get_nvshmem_host_lib_name(base_dir):
 
 
 if __name__ == '__main__':
+    # Check for EFA-DP-direct mode (GPU-direct EFA, no NVSHMEM)
+    use_efa_dp_direct = int(os.getenv('USE_EFA_DP_DIRECT', 0))
+
     disable_nvshmem = False
     nvshmem_dir = os.getenv('NVSHMEM_DIR', None)
     nvshmem_host_lib = 'libnvshmem_host.so'
-    if nvshmem_dir is None:
+
+    if use_efa_dp_direct:
+        # EFA-DP-direct mode: bypass NVSHMEM entirely
+        disable_nvshmem = True
+        print('EFA-DP-direct mode enabled: bypassing NVSHMEM, using efa-dp-direct for GPU-direct RDMA\n')
+    elif nvshmem_dir is None:
         try:
             nvshmem_dir = importlib.util.find_spec("nvidia.nvshmem").submodule_search_locations[0]
             nvshmem_host_lib = get_nvshmem_host_lib_name(nvshmem_dir)
@@ -32,7 +40,7 @@ if __name__ == '__main__':
     else:
         disable_nvshmem = False
 
-    if not disable_nvshmem:
+    if not disable_nvshmem and not use_efa_dp_direct:
         assert os.path.exists(nvshmem_dir), f'The specified NVSHMEM directory does not exist: {nvshmem_dir}'
 
     cxx_flags = ['-O3', '-Wno-deprecated-declarations', '-Wno-unused-variable', '-Wno-sign-compare', '-Wno-reorder', '-Wno-attributes']
@@ -43,11 +51,44 @@ if __name__ == '__main__':
     nvcc_dlink = []
     extra_link_args = ['-lcuda']
 
-    # NVSHMEM flags
-    if disable_nvshmem:
+    if use_efa_dp_direct:
+        # EFA-DP-direct: link efa-dp-direct library + libibverbs + libefa
+        efa_dp_dir = os.getenv('EFA_DP_DIRECT_DIR', os.path.join(os.path.dirname(__file__), 'third-party', 'efa-dp-direct'))
+        efa_home = os.getenv('EFA_HOME', '/opt/amazon/efa')
+
+        cxx_flags.append('-DUSE_EFA_DP_DIRECT')
+        nvcc_flags.append('-DUSE_EFA_DP_DIRECT')
+
+        # Include efa-dp-direct headers
+        include_dirs.append(os.path.join(efa_dp_dir, 'CUDA', 'src'))
+
+        # Link efa-dp-direct library + EFA verbs
+        efa_dp_lib_dir = os.path.join(efa_dp_dir, 'CUDA', 'build')
+        library_dirs.append(efa_dp_lib_dir)
+        library_dirs.append('/usr/lib/x86_64-linux-gnu')
+        extra_link_args.extend([
+            '-lefacudadp',
+            '-libverbs', '-lefa',
+            f'-Wl,-rpath,{efa_dp_lib_dir}',
+        ])
+
+        # Add internode sources + EFA runtime
+        sources.extend([
+            'csrc/kernels/internode.cu',
+            'csrc/kernels/internode_ll.cu',
+            'csrc/kernels/efa_dp_direct_runtime.cu',
+        ])
+
+        # Include EFA verbs headers
+        if os.path.isdir(os.path.join(efa_home, 'include')):
+            include_dirs.append(os.path.join(efa_home, 'include'))
+
+    elif disable_nvshmem:
+        # No NVSHMEM and no EFA-DP-direct: disable internode
         cxx_flags.append('-DDISABLE_NVSHMEM')
         nvcc_flags.append('-DDISABLE_NVSHMEM')
     else:
+        # NVSHMEM mode (original)
         sources.extend(['csrc/kernels/internode.cu', 'csrc/kernels/internode_ll.cu'])
         include_dirs.extend([f'{nvshmem_dir}/include'])
         library_dirs.extend([f'{nvshmem_dir}/lib'])
@@ -103,7 +144,12 @@ if __name__ == '__main__':
     print(f' > Compilation flags: {extra_compile_args}')
     print(f' > Link flags: {extra_link_args}')
     print(f' > Arch list: {os.environ["TORCH_CUDA_ARCH_LIST"]}')
-    print(f' > NVSHMEM path: {nvshmem_dir}')
+    if use_efa_dp_direct:
+        print(f' > Backend: EFA-DP-direct (GPU-direct EFA RDMA)')
+        print(f' > EFA-DP dir: {efa_dp_dir}')
+    else:
+        print(f' > Backend: NVSHMEM')
+        print(f' > NVSHMEM path: {nvshmem_dir}')
     print()
 
     # noinspection PyBroadException

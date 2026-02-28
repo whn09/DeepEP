@@ -6,7 +6,10 @@
 #include "launch.cuh"
 #include "utils.cuh"
 
-#ifndef DISABLE_NVSHMEM
+#ifdef USE_EFA_DP_DIRECT
+// EFA-DP-direct mode: use efa-dp-direct runtime instead of NVSHMEM
+#include "efa_dp_direct_runtime.cuh"
+#elif !defined(DISABLE_NVSHMEM)
 #include "nvshmem.h"
 // #include "ibgda_device.cuh"
 #include "efa_device.cuh"
@@ -39,7 +42,54 @@ void barrier(int** barrier_signal_ptrs, int rank, int num_ranks, cudaStream_t st
 
 namespace internode {
 
-#ifndef DISABLE_NVSHMEM
+#ifdef USE_EFA_DP_DIRECT
+// ============================================================================
+// EFA-DP-direct backend: GPU-direct RDMA via efa-dp-direct
+// ============================================================================
+
+std::vector<uint8_t> get_unique_id() {
+    return efa_dp_runtime::get_unique_id();
+}
+
+int init(const std::vector<uint8_t>& root_unique_id_val, int rank, int num_ranks, bool low_latency_mode) {
+    // Determine number of QPs per peer
+    // For LL mode: one QP per local expert
+    // For normal mode: one QP per channel
+    int num_local_experts = 256 / (num_ranks / NUM_MAX_NVL_PEERS); // TODO: get from config
+    int num_qps_per_peer = low_latency_mode ? num_local_experts : 1;
+
+    int ret = efa_dp_runtime::init(rank, num_ranks, num_qps_per_peer, low_latency_mode);
+    if (ret != 0) {
+        fprintf(stderr, "[runtime] efa_dp_runtime::init failed: %d\n", ret);
+        return ret;
+    }
+
+    // OOB exchange of QP info happens through Python layer
+    // using torch.distributed.all_gather()
+    return rank;
+}
+
+void* alloc(size_t size, size_t alignment) {
+    return efa_dp_runtime::alloc(size, alignment);
+}
+
+void free(void* ptr) {
+    efa_dp_runtime::free(ptr);
+}
+
+void barrier() {
+    efa_dp_runtime::barrier();
+}
+
+void finalize() {
+    efa_dp_runtime::finalize();
+}
+
+#elif !defined(DISABLE_NVSHMEM)
+// ============================================================================
+// NVSHMEM backend (original + EFA native API)
+// ============================================================================
+
 nvshmem_team_t cpu_rdma_team = NVSHMEM_TEAM_INVALID;
 nvshmem_team_config_t cpu_rdma_team_config;
 

@@ -73,7 +73,11 @@ typedef INT_BITS_T(TOPK_IDX_BITS) topk_idx_t;  // int32_t or int64_t
 
 }  // namespace deep_ep
 
-#ifndef DISABLE_NVSHMEM
+#ifdef USE_EFA_DP_DIRECT
+// EFA-DP-direct mode: bypass NVSHMEM, use efa-dp-direct for GPU-direct RDMA
+// No NVSHMEM headers needed - all communication goes through EFA SQ directly
+#elif !defined(DISABLE_NVSHMEM)
+// NVSHMEM mode (original or EFA-native)
 // #include <device_host_transport/nvshmem_common_ibgda.h>
 // #include <infiniband/mlx5dv.h>
 #include <nvshmem.h>

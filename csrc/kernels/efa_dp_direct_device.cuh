@@ -26,6 +26,9 @@
  */
 #pragma once
 
+#include <cooperative_groups.h>
+namespace cg = cooperative_groups;
+
 #include "configs.cuh"
 #include "exception.cuh"
 #include "utils.cuh"

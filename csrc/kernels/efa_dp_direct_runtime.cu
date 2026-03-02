@@ -21,7 +21,9 @@
 #include <infiniband/efadv.h>
 
 #include "efa_cuda_dp.h"
-#include "efa_dp_direct_device.cuh"
+// Only include the types header (not the full device header with efa_cuda_dp_impl.cuh)
+// to avoid multiple definition of __device__ functions when compiled with -rdc=true.
+#include "efa_dp_direct_types.cuh"
 #include "efa_dp_direct_runtime.cuh"
 #include "exception.cuh"
 

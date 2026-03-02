@@ -33,69 +33,16 @@ namespace cg = cooperative_groups;
 #include "exception.cuh"
 #include "utils.cuh"
 
-// efa-dp-direct headers
-#include "efa_cuda_dp.h"
+// efa-dp-direct headers (declarations only; implementations linked from libefacudadp.so)
 #include "efa_cuda_dp.cuh"
-#include "efa_cuda_dp_impl.cuh"
+// NOTE: Do NOT include efa_cuda_dp_impl.cuh here — it has non-inline __device__ function
+// definitions that cause multiple-definition errors when included in multiple TUs with -rdc=true.
+// The implementations are resolved at link time from libefacudadp.so.
+
+// Shared type definitions (safe to include in multiple TUs)
+#include "efa_dp_direct_types.cuh"
 
 namespace deep_ep {
-
-// Maximum number of RDMA peers supported
-#define EFA_DP_MAX_PEERS 128
-// Maximum number of QPs per peer (one per local expert / channel)
-#define EFA_DP_MAX_QPS_PER_PEER 64
-// Maximum total QPs
-#define EFA_DP_MAX_TOTAL_QPS (EFA_DP_MAX_PEERS * EFA_DP_MAX_QPS_PER_PEER)
-
-/**
- * Per-peer remote memory info for address translation.
- * Replaces NVSHMEM's symmetric heap with explicit address mapping.
- */
-struct efa_dp_remote_info {
-    uint64_t heap_base;    // Remote peer's buffer base address
-    uint32_t rkey;         // Remote memory key for RDMA access
-    uint32_t qp_num;       // Remote QP number
-    uint16_t ah_num;       // Address Handle number for this peer
-    uint16_t reserved;
-};
-
-/**
- * Per-QP info: maps (peer, qp_id) to an efa_cuda_qp device handle.
- */
-struct efa_dp_qp_info {
-    efa_cuda_qp *gpu_qp;  // Device-side QP handle (on GPU memory)
-    uint32_t lkey;         // Local memory key for this QP's registered MR
-};
-
-/**
- * Global device state for efa-dp-direct operations.
- * Initialized by host-side runtime and copied to device memory.
- */
-struct efa_dp_device_state {
-    // Peer info table (indexed by RDMA rank)
-    efa_dp_remote_info peers[EFA_DP_MAX_PEERS];
-    int num_peers;
-
-    // QP table: qps[peer_idx * num_qps_per_peer + qp_id]
-    efa_dp_qp_info qps[EFA_DP_MAX_TOTAL_QPS];
-    int num_qps_per_peer;
-
-    // CQ handle for completion polling
-    efa_cuda_cq *gpu_cq;
-
-    // Local info
-    uint64_t local_heap_base;
-    uint32_t local_lkey;
-    int local_rank;
-    int num_ranks;
-
-    // For P2P detection (NVLink intra-node)
-    uint64_t p2p_bases[EFA_DP_MAX_PEERS]; // 0 = no P2P
-
-    // Compatibility fields for code that references ibgda_get_state()
-    uint32_t num_rc_per_pe;
-    uint32_t num_devices_initialized;
-};
 
 // Global device state - defined in efa_dp_direct_runtime.cu
 extern __device__ efa_dp_device_state efa_dp_state_d;

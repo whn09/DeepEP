@@ -79,6 +79,9 @@ if __name__ == '__main__':
             'csrc/kernels/efa_dp_direct_runtime.cu',
         ])
 
+        # Device linking: resolve cross-TU __device__ symbols (required with -rdc=true)
+        nvcc_dlink.extend(['-dlink', f'-L{efa_dp_lib_dir}', '-lefacudadp'])
+
         # Include EFA verbs headers
         if os.path.isdir(os.path.join(efa_home, 'include')):
             include_dirs.append(os.path.join(efa_home, 'include'))

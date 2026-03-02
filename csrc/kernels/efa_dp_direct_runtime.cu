@@ -27,8 +27,10 @@
 #include "efa_dp_direct_runtime.cuh"
 #include "exception.cuh"
 
-// GPU-side global device state
-__device__ deep_ep::efa_dp_device_state efa_dp_state_d;
+// GPU-side global device state — defined in efa_dp_direct_device_defs.cu
+namespace deep_ep {
+extern __device__ efa_dp_device_state efa_dp_state_d;
+} // namespace deep_ep
 
 namespace deep_ep {
 namespace efa_dp_runtime {
@@ -441,7 +443,7 @@ void finalize() {
  * available to GPU kernels via the efa_dp_state_d global.
  */
 void copy_state_to_gpu() {
-    cudaMemcpyToSymbol(efa_dp_state_d, &g_state.host_state,
+    cudaMemcpyToSymbol(deep_ep::efa_dp_state_d, &g_state.host_state,
                        sizeof(efa_dp_device_state));
 }
 

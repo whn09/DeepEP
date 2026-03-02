@@ -72,15 +72,17 @@ if __name__ == '__main__':
             f'-Wl,-rpath,{efa_dp_lib_dir}',
         ])
 
-        # Add internode sources + EFA runtime
+        # Add internode sources + EFA runtime + device function defs
         sources.extend([
             'csrc/kernels/internode.cu',
             'csrc/kernels/internode_ll.cu',
             'csrc/kernels/efa_dp_direct_runtime.cu',
+            'csrc/kernels/efa_dp_direct_device_defs.cu',
         ])
 
         # Device linking: resolve cross-TU __device__ symbols (required with -rdc=true)
-        nvcc_dlink.extend(['-dlink', f'-L{efa_dp_lib_dir}', '-lefacudadp'])
+        # Device function definitions are compiled via efa_dp_direct_device_defs.cu
+        nvcc_dlink.extend(['-dlink'])
 
         # Include EFA verbs headers
         if os.path.isdir(os.path.join(efa_home, 'include')):

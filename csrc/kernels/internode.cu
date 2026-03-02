@@ -39,6 +39,9 @@ __device__ static __forceinline__ void nvshmem_sync(nvshmem_team_t team) {
 __device__ static __forceinline__ void nvshmem_sync_all() {
     __threadfence_system();
 }
+__device__ static __forceinline__ void nvshmem_quiet() {
+    __threadfence_system();
+}
 #else
 extern nvshmem_team_t cpu_rdma_team;
 #endif
@@ -113,10 +116,12 @@ __forceinline__ __device__ int translate_dst_rdma_rank(const int dst_rdma_rank, 
     return kLowLatencyMode ? (dst_rdma_rank * NUM_MAX_NVL_PEERS + nvl_rank) : dst_rdma_rank;
 }
 
+#ifndef USE_EFA_DP_DIRECT
 template <bool kLowLatencyMode>
 __forceinline__ __device__ void nvshmem_sync_with_same_gpu_idx(const nvshmem_team_t& rdma_team) {
     kLowLatencyMode ? void(nvshmem_sync(rdma_team)) : nvshmem_sync_all();
 }
+#endif
 
 template <bool kLowLatencyMode, int kNumRDMARanks>
 __global__ void notify_dispatch(const int* num_tokens_per_rank,

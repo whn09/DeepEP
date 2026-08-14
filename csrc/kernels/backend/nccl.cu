@@ -21,6 +21,7 @@
 
 #include <deep_ep/common/compiled.cuh>
 #include <deep_ep/common/exception.cuh>
+#include "../elastic/kernel_select.hpp"
 
 #include "api.cuh"
 #include "../../utils/system.hpp"
@@ -107,6 +108,24 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
 
         const bool scaleout_active = num_rdma_ranks > 1;
 
+        if (elastic::use_ordered_hybrid_kernel() and allow_hybrid_mode) {
+            // EP_HYBRID_KERNEL=ordered: upstream GIN config
+            if (this->num_allocated_qps == 0) {
+                this->num_allocated_qps = 129;
+            }
+
+            reqs.ginContextCount = this->num_allocated_qps;
+            reqs.ginExclusiveContexts = true;
+            reqs.ginQueueDepth = kGinQPDepth;
+            reqs.ginTrafficClass = sl_idx;
+            reqs.ginSignalCount = num_ranks + 2 * 2;
+            reqs.ginConnectionType = NCCL_GIN_CONNECTION_RAIL;
+            // The ordered kernels use VA signals, only available on ordered transports
+            reqs.ginVaSignalsRequired = true;
+            reqs.ginStrongSignalsRequired = true;
+            printf("GIN (ordered, upstream config): contexts=%d, signals=%d, queue_depth=%d\n",
+                   reqs.ginContextCount, reqs.ginSignalCount, reqs.ginQueueDepth);
+        } else {
         auto resolve_gin_context_cnt = [&]() -> int {
             const int ctx = (this->num_allocated_qps == 0)
                 ? elastic::gin_alloc::kDefaultGinContextCnt
@@ -153,6 +172,7 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
         // strong signals are not required.
         reqs.ginVaSignalsRequired = false;
         reqs.ginStrongSignalsRequired = false;
+        }
     }
 #if NCCL_VERSION_CODE >= NCCL_VERSION(2, 31, 0)
     reqs.useRuntimeVersion = true;

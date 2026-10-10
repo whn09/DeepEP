@@ -89,7 +89,7 @@ __forceinline__ __device__ void st_bulk(void* smem_ptr) {
     if (elect_one_sync()) {
         asm volatile("st.bulk.weak.shared::cta [%0], %1, 0;\n" ::
                      "r"(static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr))),
-                     "r"(kNumBytes)
+                     "l"(static_cast<uint64_t>(kNumBytes))
                      : "memory");
     }
 #else
@@ -446,6 +446,34 @@ __forceinline__ __device__ void st_release_sys(void* ptr, dtype_t value) {
     } else if constexpr (sizeof(dtype_t) == 8) {
         uint64_t int_value = reinterpret_cast<const uint64_t&>(value);
         asm volatile("st.release.sys.global.u64 [%0], %1;" :: "l"(ptr), "l"(int_value));
+    } else {
+        EP_STATIC_ASSERT(sizeof(dtype_t) == 4 or sizeof(dtype_t) == 8, "Invalid data type length");
+    }
+}
+
+template <typename dtype_t>
+__forceinline__ __device__ dtype_t ld_acquire_cta(const dtype_t* ptr) {
+    if constexpr (sizeof(dtype_t) == 4) {
+        uint32_t value;
+        asm volatile("ld.acquire.cta.u32 %0, [%1];" : "=r"(value) : "l"(ptr));
+        return reinterpret_cast<const dtype_t&>(value);
+    } else if constexpr (sizeof(dtype_t) == 8) {
+        uint64_t value;
+        asm volatile("ld.acquire.cta.u64 %0, [%1];" : "=l"(value) : "l"(ptr));
+        return reinterpret_cast<const dtype_t&>(value);
+    } else {
+        EP_STATIC_ASSERT(sizeof(dtype_t) == 4 or sizeof(dtype_t) == 8, "Invalid data type length");
+    }
+}
+
+template <typename dtype_t>
+__forceinline__ __device__ void st_release_cta(void* ptr, dtype_t value) {
+    if constexpr (sizeof(dtype_t) == 4) {
+        uint32_t int_value = reinterpret_cast<const uint32_t&>(value);
+        asm volatile("st.release.cta.u32 [%0], %1;" :: "l"(ptr), "r"(int_value));
+    } else if constexpr (sizeof(dtype_t) == 8) {
+        uint64_t int_value = reinterpret_cast<const uint64_t&>(value);
+        asm volatile("st.release.cta.u64 [%0], %1;" :: "l"(ptr), "l"(int_value));
     } else {
         EP_STATIC_ASSERT(sizeof(dtype_t) == 4 or sizeof(dtype_t) == 8, "Invalid data type length");
     }

@@ -23,6 +23,9 @@ struct alignas(kNumRDMAAlignmentBytes) EPSignals {
 EP_STATIC_ASSERT(sizeof(EPSignals) <= kNumMaxSignalBytes, "Too many signals");
 
 struct EPWorkspaceLayout {
+    // Upper bound on the unordered hybrid dispatch's per-channel part count
+    static constexpr int kNumMaxParts = 64;
+
     EPSignals& signals;
 
     int num_ranks;

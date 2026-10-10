@@ -81,4 +81,9 @@ constexpr int kNumMaxQPs = 1024;
 constexpr int kDefaultQPDepth = 1024;
 constexpr int kNumMaxSignalBytes = 16 * 1024 * 1024;
 
+// Unordered hybrid dispatch: one send buffer and up to two forward buffers per channel
+constexpr int kNumDispatchSendBuffers = 1;
+constexpr int kNumDispatchFwdBuffers = 2;
+constexpr int kNumDispatchBuffersPerChannel = kNumDispatchSendBuffers + kNumDispatchFwdBuffers;
+
 } // namespace deep_ep

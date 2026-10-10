@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <vector>
 #include <string>
@@ -82,7 +83,8 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
                  const std::optional<int>& sl_idx, const int& num_allocated_qps, const int& qp_depth,
                  const int& num_cpu_timeout_secs, const int& num_gpu_timeout_secs,
                  const bool& enable_lsa_multimem,
-                 const std::shared_ptr<Context>& main_context):
+                 const std::shared_ptr<Context>& main_context,
+                 const bool& unordered_gin_layout):
     rank_idx(rank_idx), num_ranks(num_ranks),
     gin_min_stride(1),
     num_allocated_qps(num_allocated_qps),
@@ -92,7 +94,7 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
     num_rdma_storage_bytes(num_rdma_storage_bytes),
     use_cpu_rdma_storage(use_cpu_rdma_storage) {
     EP_HOST_ASSERT(num_ranks > 0 and num_ranks <= kNumMaxRanks);
-    EP_HOST_ASSERT(num_allocated_qps > 0 and num_allocated_qps <= kNumMaxQPs);
+    EP_HOST_ASSERT((num_allocated_qps > 0 or unordered_gin_layout) and num_allocated_qps <= kNumMaxQPs);
     EP_HOST_ASSERT(num_workspace_bytes > 0 and num_workspace_bytes % kNumAllocationAlignmentBytes == 0);
     EP_HOST_ASSERT(num_gpu_buffer_bytes >= 0 and num_gpu_buffer_bytes % kNumAllocationAlignmentBytes == 0);
     EP_HOST_ASSERT(num_rdma_storage_bytes >= 0 and num_rdma_storage_bytes % kNumAllocationAlignmentBytes == 0);
@@ -126,18 +128,56 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
             (allow_hybrid_mode ? props.railedGinType : props.ginType) != NCCL_GIN_TYPE_NONE and
             "NCCL GIN is unavailable. This is usually due to a network configuration issue, "
             "such as `allow_hybrid_mode=0` (disable direct RDMA kernels) in multi-plane network.");
-        EP_HOST_ASSERT(
-            props.ginSupport[NCCL_GIN_TYPE_GDAKI] and
-            "NCCL GDAKI is unavailable for this communicator.");
-
+        // GIN backend: GDAKI when the communicator supports it (upstream default), otherwise
+        // let NCCL pick (e.g. `NCCL_GIN_TYPE=5`, EFA GDA). `EP_GIN_TYPE` forces a type.
+        if (std::getenv("EP_GIN_TYPE") != nullptr) {
+            reqs.ginType = static_cast<decltype(reqs.ginType)>(get_env<int>("EP_GIN_TYPE"));
+        } else if (std::getenv("NCCL_GIN_TYPE") == nullptr and props.ginSupport[NCCL_GIN_TYPE_GDAKI]) {
+            reqs.ginType = NCCL_GIN_TYPE_GDAKI;
+        }
         gin_min_stride = props.ginMinStride;
-        reqs.ginType = NCCL_GIN_TYPE_GDAKI;
-        reqs.ginContextCount = num_allocated_qps;
-        reqs.ginExclusiveContexts = true;
         reqs.ginQueueDepth = qp_depth > 0 ? qp_depth : kDefaultQPDepth;
 
-        // Customized RDMA barrier needs extra signals
-        reqs.ginSignalCount = num_ranks + 2 * 2;
+        const int num_rail_ranks = ncclTeamRail(comm).nRanks;
+        EP_HOST_ASSERT(num_ranks == ncclTeamLsa(comm).nRanks * num_rail_ranks);
+        if (unordered_gin_layout) {
+            // The unordered hybrid kernels share GIN contexts between channels and synchronize
+            // through counting signals only: per-context indexed-signal budget, no VA/strong signals
+            EP_HOST_ASSERT(allow_hybrid_mode);
+            const int requested = num_allocated_qps == 0 ? gin_alloc::kDefaultGinContextCnt : num_allocated_qps;
+            const int num_contexts = std::clamp(requested, gin_alloc::kMinGinContextCnt, gin_alloc::kMaxGinContextCnt);
+            if (num_contexts != requested)
+                printf("[WARN] DeepEP clamped num_allocated_qps from %d to %d: the unordered "
+                       "GIN layout supports [%d, %d] contexts (one GIN context supplies one QP)\n",
+                       requested, num_contexts, gin_alloc::kMinGinContextCnt, gin_alloc::kMaxGinContextCnt);
+            if (num_rail_ranks > 1) {
+                gin_config = gin_alloc::make_gin_resources(num_contexts);
+            } else {
+                gin_config.gin_context_cnt = num_contexts;
+                gin_config.gin_indexed_signals_cnt = 0;
+            }
+            // The GIN barrier waits on one signal slot per scale-out rank (slot = rank index) on QP 0
+            EP_HOST_ASSERT((num_rail_ranks == 1 or gin_config.gin_indexed_signals_cnt >= num_rail_ranks) and
+                           "GIN indexed-signal budget cannot cover the barrier slots; "
+                           "reduce num_allocated_qps to raise the per-context signal count");
+            this->num_allocated_qps = gin_config.gin_context_cnt;
+            if (get_env<int>("EP_BUFFER_DEBUG"))
+                printf("GIN layout: gin_context_cnt=%d, gin_indexed_signals_cnt=%d\n",
+                       gin_config.gin_context_cnt, gin_config.gin_indexed_signals_cnt);
+
+            reqs.ginContextCount = gin_config.gin_context_cnt;
+            reqs.ginExclusiveContexts = false;
+            if (num_rail_ranks > 1)
+                reqs.ginSignalCount = gin_config.gin_indexed_signals_cnt;
+            reqs.ginVaSignalsRequired = false;
+            reqs.ginStrongSignalsRequired = false;
+        } else {
+            reqs.ginContextCount = num_allocated_qps;
+            reqs.ginExclusiveContexts = true;
+
+            // Customized RDMA barrier needs extra signals
+            reqs.ginSignalCount = num_ranks + 2 * 2;
+        }
         if (allow_hybrid_mode and num_rdma_storage_bytes > 0) {
             reqs.ginCustomStride = gin_min_stride;
             reqs.ginConnectionType = NCCL_GIN_CONNECTION_CUSTOM_STRIDE;

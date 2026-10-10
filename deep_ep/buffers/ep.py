@@ -58,6 +58,9 @@ class EPHandle:
         dst_buffer_slot_idx: destination buffer slot indices from dispatch.
         token_metadata_at_forward: per-channel forwarded token metadata (hybrid mode only).
         channel_linked_list: per-channel per-scaleup-peer linked list (hybrid mode only).
+        token_map_at_dispatch: per-(token, k) recv slot for combine's return trip, `[num_max_tokens_per_rank, num_topk]`
+            (unordered hybrid mode only). Populated by dispatch; consumed by the combine epilogue to look up
+            each partial's location under the queue-based recv layout.
         num_recv_tokens: the total number of received tokens.
     """
 
@@ -76,7 +79,8 @@ class EPHandle:
                  recv_src_metadata: torch.Tensor,
                  dst_buffer_slot_idx: torch.Tensor,
                  token_metadata_at_forward: Optional[torch.Tensor],
-                 channel_linked_list: Optional[torch.Tensor]):
+                 channel_linked_list: Optional[torch.Tensor],
+                 token_map_at_dispatch: Optional[torch.Tensor]):
         assert topk_idx is not None
 
         self.do_expand = do_expand
@@ -92,6 +96,7 @@ class EPHandle:
         self.dst_buffer_slot_idx = dst_buffer_slot_idx
         self.token_metadata_at_forward = token_metadata_at_forward
         self.channel_linked_list = channel_linked_list
+        self.token_map_at_dispatch = token_map_at_dispatch
 
         # May not be accurate without CPU sync
         self.num_recv_tokens = num_recv_tokens
@@ -280,7 +285,16 @@ class EPBuffer(BufferBase):
             prefer_overlap_with_compute: whether to prefer overlapping communication with compute.
             sl_idx: the optional RDMA service level index. It overrides `EP_DEFAULT_RDMA_SL` and can be overridden by
                 `EP_OVERRIDE_RDMA_SL`.
-            num_allocated_qps: the number of QPs to allocate for RDMA (0 for automatic).
+            num_allocated_qps: the number of QPs to allocate for RDMA. One GIN context supplies
+                one QP, so this is also the GIN context count. Pass 0 for automatic, which
+                resolves per hybrid kernel mode (see `EP_HYBRID_KERNEL`):
+                  - unordered (default): 11 QPs and 21 signals per QP, for the balance
+                    between token batch size and the number of QPs. An explicit value
+                    is clamped into [2, 17] with a warning. Requesting fewer
+                    QPs gives each context more signals.
+                  - ordered: 129 QPs (65 with fast RDMA atomics). This mode signals through
+                    VA/strong signals rather than the indexed-signal budget, so any explicit
+                    value passes through without restriction.
             num_cpu_timeout_secs: CPU-side timeout in seconds for CPU sync.
             num_gpu_timeout_secs: GPU-side timeout in seconds for GPU operations.
             explicitly_destroy: If this flag is set to True, you need to explicitly call `destroy()` to release resources;
@@ -324,15 +338,23 @@ class EPBuffer(BufferBase):
         # Check PCIe GPUs
         check_nvlink_connections(group)
 
-        # Automatic maximum QP count allowed
-        if num_allocated_qps == 0:
+        # Automatic QP count
+        use_unordered_hybrid_kernel = allow_hybrid_mode and os.environ.get('EP_HYBRID_KERNEL', 'unordered') != 'ordered'
+        if num_allocated_qps == 0 and not use_unordered_hybrid_kernel:
             # Hybrid mode will consume more QPs
             # The extra QP is for notify warps
             if self.allow_hybrid_mode:
                 num_allocated_qps = 65 if check_fast_rdma_atomic_support() else 129
             else:
                 num_allocated_qps = 17
-        self.num_allocated_qps = num_allocated_qps
+        elif num_allocated_qps > 0 and use_unordered_hybrid_kernel:
+            # The unordered hybrid kernels resolve 0 (automatic) in C++ from the GIN signal budget
+            clamped_qps = max(_C.min_unordered_gin_qps, min(num_allocated_qps, _C.max_unordered_gin_qps))
+            if clamped_qps != num_allocated_qps:
+                print(f'[WARN] DeepEP clamped num_allocated_qps from {num_allocated_qps} to {clamped_qps}: '
+                      f'the unordered GIN layout supports [{_C.min_unordered_gin_qps}, {_C.max_unordered_gin_qps}] '
+                      f'contexts (one GIN context supplies one QP)', flush=True)
+                num_allocated_qps = clamped_qps
 
         # Create CPP handle
         super().__init__(explicitly_destroy)
@@ -344,6 +366,11 @@ class EPBuffer(BufferBase):
             num_cpu_timeout_secs, num_gpu_timeout_secs,
             self.explicitly_destroy)
         self.context = self.runtime.context
+
+        # A 0 read back here means the automatic QP count was never resolved
+        self.num_allocated_qps = self.context.num_allocated_qps
+        assert self.num_allocated_qps >= 1, \
+            f'runtime returned num_allocated_qps={self.num_allocated_qps}: the QP count was never resolved'
 
         # Materialize LB allocation plan
         if lb_allocation_plan is not None:
@@ -403,9 +430,9 @@ class EPBuffer(BufferBase):
         -> Tuple[Optional[int], Optional[int], Optional[list],
                  Optional[torch.Tensor], Optional[torch.Tensor],
                  Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
-                 Optional[torch.Tensor], Optional[torch.Tensor]]:
+                 Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         if handle is None:
-            return None, None, None, None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None, None, None, None
         return (handle.num_recv_tokens,
                 handle.num_expanded_tokens,
                 handle.num_recv_tokens_per_expert_list,
@@ -415,7 +442,8 @@ class EPBuffer(BufferBase):
                 handle.dst_buffer_slot_idx,
                 handle.token_metadata_at_forward,
                 handle.recv_src_metadata,
-                handle.channel_linked_list)
+                handle.channel_linked_list,
+                handle.token_map_at_dispatch)
 
     @staticmethod
     def capture() -> EventHandle:
@@ -668,7 +696,8 @@ class EPBuffer(BufferBase):
          cached_dst_buffer_slot_idx,
          cached_token_metadata_at_forward,
          cached_recv_src_metadata,
-         cached_channel_linked_list) = self._unpack_handle(handle)
+         cached_channel_linked_list,
+         cached_token_map_at_dispatch) = self._unpack_handle(handle)
 
         # Some default values
         num_max_tokens_per_rank = value_or(num_max_tokens_per_rank, self.num_max_tokens_per_rank)
@@ -688,6 +717,7 @@ class EPBuffer(BufferBase):
                                                                  cached_token_metadata_at_forward,
                                                                  cached_recv_src_metadata,
                                                                  cached_channel_linked_list,
+                                                                 cached_token_map_at_dispatch,
                                                                  num_max_tokens_per_rank,
                                                                  num_experts, expert_alignment,
                                                                  num_sms, num_qps,
@@ -710,7 +740,8 @@ class EPBuffer(BufferBase):
              recv_src_metadata,
              dst_buffer_slot_idx,
              token_metadata_at_forward,
-             channel_linked_list) = dispatch_result
+             channel_linked_list,
+             token_map_at_dispatch) = dispatch_result
 
             # Create handle if not cached
             nonlocal handle
@@ -728,7 +759,8 @@ class EPBuffer(BufferBase):
                               recv_src_metadata,
                               dst_buffer_slot_idx,
                               token_metadata_at_forward,
-                              channel_linked_list) if handle is None else handle
+                              channel_linked_list,
+                              token_map_at_dispatch) if handle is None else handle
 
             # Do deterministic
             if self.deterministic:
@@ -825,6 +857,7 @@ class EPBuffer(BufferBase):
                                                                 handle.psum_num_recv_tokens_per_scaleup_rank,
                                                                 handle.token_metadata_at_forward,
                                                                 handle.channel_linked_list,
+                                                                handle.token_map_at_dispatch,
                                                                 handle.num_experts,
                                                                 handle.num_max_tokens_per_rank,
                                                                 num_sms, num_qps,

@@ -8,6 +8,7 @@
 #include <nccl.h>
 #include <nccl_device.h>
 
+#include <deep_ep/common/gin_resource_alloc.cuh>
 #include <deep_ep/layout/bucket/workspace.cuh>
 #include <deep_jit/utils/no_ref_ptr.hpp>
 
@@ -47,6 +48,8 @@ public:
     ncclWindow_t window;
 
     int num_allocated_qps;
+    // Resolved GIN layout of the unordered hybrid kernels (zero-initialized otherwise)
+    gin_alloc::GinResourceConfig gin_config = {};
     int num_cpu_timeout_secs;
     int64_t num_gpu_timeout_cycles;
 
@@ -72,7 +75,8 @@ public:
             const std::optional<int>& sl_idx, const int& num_allocated_qps, const int& qp_depth,
             const int& num_cpu_timeout_secs, const int& num_gpu_timeout_secs,
             const bool& enable_lsa_multimem = false,
-            const std::shared_ptr<Context>& main_context = nullptr);
+            const std::shared_ptr<Context>& main_context = nullptr,
+            const bool& unordered_gin_layout = false);
 
     std::tuple<int, int> get_physical_domain_size() const;
 

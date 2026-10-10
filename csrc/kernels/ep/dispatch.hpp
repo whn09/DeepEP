@@ -14,6 +14,7 @@
 #include <deep_ep/layout/ep/token.cuh>
 
 #include "../../runtime/jit.hpp"
+#include "kernel_select.hpp"
 
 namespace deep_ep::ep {
 
@@ -36,6 +37,7 @@ static void launch_dispatch(void* x, void* sf,
                             int* num_unaligned_recv_tokens_per_expert,
                             int* dst_buffer_slot_idx,
                             int* token_metadata_at_forward,
+                            int* token_map_at_dispatch,
                             const int& num_tokens, const int& num_max_tokens_per_rank,
                             const int& hidden, const int& elem_size,
                             const int& num_sf_packs, const int& sf_token_stride, const int& sf_hidden_stride,
@@ -47,10 +49,19 @@ static void launch_dispatch(void* x, void* sf,
                             const int& num_scaleout_ranks, const int& num_scaleup_ranks,
                             const bool& is_scaleup_nvlink,
                             const int& num_sms, const int& num_channels_per_sm,
+                            const int& gin_indexed_signals_cnt,
                             const int& num_smem_bytes,
                             const int& num_qps, const int64_t& num_timeout_cycles,
                             const bool& cached_mode,
                             const bool& do_cpu_sync,
+                            // Double-buffer the forward warp's TMA loads (unordered hybrid kernel only).
+                            // Only enabled when compute overlap is off
+                            const bool& double_buffer_forward,
+                            // Combine-time reduction mode and expanded dispatch: select the
+                            // `token_map_at_dispatch` slot encoding of the combine this handle feeds
+                            const bool& allow_multiple_reduction,
+                            const bool& do_expand,
+                            const int& dispatch_iteration,
                             const at::cuda::CUDAStream& stream) {
     // Cached mode does not support expert token counting
     if (cached_mode)
@@ -99,7 +110,7 @@ static void launch_dispatch(void* x, void* sf,
             num_max_tokens_per_rank,
             num_experts, num_topk, expert_alignment,
             num_qps, num_timeout_cycles);
-    } else {
+    } else if (use_ordered_hybrid_kernel()) {
         header_name = "hybrid_dispatch";
         func_name = std::format("hybrid_dispatch_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>",
             do_cpu_sync,
@@ -111,6 +122,22 @@ static void launch_dispatch(void* x, void* sf,
             num_max_tokens_per_rank,
             num_experts, num_topk, expert_alignment,
             num_qps, num_timeout_cycles);
+    } else {
+        header_name = "hybrid_dispatch_unordered";
+        func_name = std::format("hybrid_unordered_dispatch_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>",
+            do_cpu_sync,
+            reuse_slot_indices,
+            allow_multiple_reduction,
+            do_expand,
+            double_buffer_forward,
+            num_sms,
+            num_notify_warps, num_scaleout_warps, num_forward_warps,
+            num_scaleout_ranks, num_scaleup_ranks,
+            hidden * elem_size, num_sf_packs,
+            num_max_tokens_per_rank,
+            num_experts, num_topk, expert_alignment,
+            num_qps, num_timeout_cycles,
+            gin_indexed_signals_cnt);
     }
     const auto kernel = jit->compile("dispatch", std::format(R"(
 #include <deep_ep/impls/ep/{}.cuh>
@@ -145,7 +172,7 @@ static void __instantiate_kernel() {{
             workspace, mapped_host_workspace,
             scaleup_rank_idx
         );
-    } else {
+    } else if (use_ordered_hybrid_kernel()) {
         jit->launch(
             kernel, options,
             x, static_cast<sf_pack_t*>(sf), topk_idx, topk_weights,
@@ -161,6 +188,25 @@ static void __instantiate_kernel() {{
             buffer,
             workspace, mapped_host_workspace,
             scaleout_rank_idx, scaleup_rank_idx
+        );
+    } else {
+        jit->launch(
+            kernel, options,
+            x, static_cast<sf_pack_t*>(sf), topk_idx, topk_weights,
+            cumulative_local_expert_recv_stats,
+            psum_num_recv_tokens_per_scaleup_rank,
+            psum_num_recv_tokens_per_expert,
+            num_unaligned_recv_tokens_per_expert,
+            dst_buffer_slot_idx,
+            token_metadata_at_forward,
+            token_map_at_dispatch,
+            num_tokens,
+            sf_token_stride, sf_hidden_stride,
+            nccl_dev_comm, nccl_window,
+            buffer,
+            workspace, mapped_host_workspace,
+            scaleout_rank_idx, scaleup_rank_idx,
+            dispatch_iteration
         );
     }
 }

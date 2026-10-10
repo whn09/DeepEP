@@ -4,6 +4,9 @@
 #include <memory>
 #include <string>
 
+#include <nccl.h>
+#include <nccl_device/core.h>
+
 #include <deep_ep/common/compiled.cuh>
 #include <deep_jit/backend/cuda/backend.hpp>
 #include <deep_jit/python_api.hpp>
@@ -36,10 +39,15 @@ inline void init_jit(const std::string& library_root_path, const std::string& nc
         nvcc_flags.emplace_back("--compiler-options=-Wno-deprecated-declarations,-Wno-abi");
         nvcc_flags.emplace_back("-I" + nccl_include_dir.string());
         nvcc_flags.emplace_back("-DEP_NUM_TOPK_IDX_BITS=" + std::to_string(EP_NUM_TOPK_IDX_BITS));
-        nvcc_flags.emplace_back("-DNCCL_GIN_GDAKI_ENABLE=1");
+        // Compile only the device GIN backend in use: GDAKI by default, EFA GDA when GIN type 5 is
+        // requested (`EP_GIN_TYPE` or `NCCL_GIN_TYPE`). A device backend that does not match the
+        // host-side GIN context reads its QP/CQ state with the wrong layout
+        const auto gin_type_env = std::getenv("EP_GIN_TYPE") != nullptr ? "EP_GIN_TYPE" : "NCCL_GIN_TYPE";
+        const bool use_efa_gda = get_env<int>(gin_type_env, 0) == NCCL_GIN_TYPE_EFA_GDA;
+        nvcc_flags.emplace_back(std::string("-DNCCL_GIN_GDAKI_ENABLE=") + (use_efa_gda ? "0" : "1"));
         nvcc_flags.emplace_back("-DNCCL_GIN_PROXY_ENABLE=0");
         nvcc_flags.emplace_back("-DNCCL_GIN_GPI_ENABLE=0");
-        nvcc_flags.emplace_back("-DNCCL_GIN_EFA_GDA_ENABLE=0");
+        nvcc_flags.emplace_back(std::string("-DNCCL_GIN_EFA_GDA_ENABLE=") + (use_efa_gda ? "1" : "0"));
         if (get_env<int>("EP_GIN_GDAKI_DEBUG", 0))
             nvcc_flags.emplace_back("-DNCCL_DEVICE_GIN_GDAKI_ENABLE_DEBUG=1");
         return runtime;

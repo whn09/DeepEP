@@ -145,7 +145,7 @@ hybrid_unordered_combine_impl(nv_bfloat16* x,
 
         // Adjust registers
         if constexpr (kAdjustRegisters)
-            ptx::warpgroup_reg_realloc<kNumRegistersForScaleupWarps, kNumThreads>();
+            ptx::warpgroup_reg_dealloc<kNumRegistersForScaleupWarps>();
 
         // Shift into the right buffer if using rank layout
         if constexpr (kUseScaleupRankLayout)
@@ -398,7 +398,7 @@ hybrid_unordered_combine_impl(nv_bfloat16* x,
 
         // Adjust registers
         if constexpr (kAdjustRegisters)
-            ptx::warpgroup_reg_realloc<kNumRegistersForForwardWarps, kNumThreads>();
+            ptx::warpgroup_reg_alloc<kNumRegistersForForwardWarps>();
 
         constexpr int kNumSlotsPerChannel = kNumMaxTokensPerChannel * (kAllowMultipleReduction ? 1 : kNumTopk);
         scaleout_send_buffer = scaleout_send_buffer.get_channel_buffer<kNumSlotsPerChannel>(channel_idx);

@@ -496,6 +496,19 @@ __device__ __forceinline__ void warpgroup_reg_realloc() {
         asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" : : "n"(kNumRegs));
 }
 
+// Explicit register adjustment, for kernels whose register split is not relative to the
+// `__launch_bounds__` budget (e.g. the unordered hybrid combine, whose block is not a whole
+// number of warpgroups and moves registers from scale-up to forward warps)
+template <int kNumRegs>
+__device__ __forceinline__ void warpgroup_reg_alloc() {
+    asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n" : : "n"(kNumRegs));
+}
+
+template <int kNumRegs>
+__device__ __forceinline__ void warpgroup_reg_dealloc() {
+    asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" : : "n"(kNumRegs));
+}
+
 /// General fences
 __device__ __forceinline__ void fence_acquire_gpu() {
     asm volatile("fence.acquire.gpu;" ::: "memory");

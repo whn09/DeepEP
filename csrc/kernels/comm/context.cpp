@@ -193,6 +193,9 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
         if (std::getenv("EP_OVERRIDE_RDMA_SL") != nullptr)
             reqs.ginTrafficClass = get_env<int>("EP_OVERRIDE_RDMA_SL");
     }
+    // Without GIN the unordered layout never resolved the automatic QP count
+    if (unordered_gin_layout and this->num_allocated_qps == 0)
+        this->num_allocated_qps = gin_alloc::kDefaultGinContextCnt;
 #if NCCL_VERSION_CODE >= NCCL_VERSION(2, 31, 0)
     reqs.useRuntimeVersion = true;
     dev_comm.ptr = malloc(props.devCommRuntimeVersionSize);

@@ -292,16 +292,31 @@ __forceinline__ __device__ void scaleout_barrier_wo_local_sync(
         gin.nccl_dev_comm, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx);
 }
 
+// Flush `gin` and trap on timeout, like `timeout_while`: a peer that dies before acknowledging a put
+// must not turn into a silent hang. On abort NCCL returns early and the kernel proceeds.
+template <int64_t kNumTimeoutCycles, typename coop_t>
+__forceinline__ __device__ void flush_with_timeout(const ncclGin& gin, const coop_t& coop, const int& context_idx) {
+    const auto result = gin.flush(coop, cuda::memory_order_acquire, ncclGin_None{},
+                                  static_cast<uint64_t>(kNumTimeoutCycles));
+    if (result != ncclSuccess) {
+        printf("DeepEP GIN flush timeout, context: %d, result: %d\n", context_idx, static_cast<int>(result));
+        // Wait another 1 second to let all threads print information and trap
+        const auto start_clock = clock64();
+        while (clock64() - start_clock < kNumOneSecCycles) {}
+        ptx::trap();
+    }
+}
+
 // `kGinEntryFlush`: wait until all of this GPU's GIN puts are locally complete, then synchronize the
 // grid, so that the start barrier that follows (scale-up signals from SM 0 included) is published only
 // after the flush. Must be called by every thread of a cooperative launch.
-template <int kNumSMs, int kNumThreads, int kNumQPs, int kNumWarps = kNumThreads / 32>
+template <int kNumSMs, int kNumThreads, int kNumQPs, int64_t kNumTimeoutCycles, int kNumWarps = kNumThreads / 32>
 __forceinline__ __device__ void flush_gin_before_barrier(const ncclDevComm_t& nccl_dev_comm,
                                                          const int& sm_idx, const int& thread_idx) {
     if constexpr (kGinEntryFlush) {
         const int num_qps = kNumQPs == kFlushAllAllocatedQPs ? nccl_dev_comm.ginContextCount : kNumQPs;
         for (int i = sm_idx * kNumWarps + thread_idx / 32; i < num_qps; i += kNumSMs * kNumWarps)
-            ncclGin(nccl_dev_comm, i, NCCL_GIN_RESOURCE_SHARING_CTA).flush(ncclCoopWarp());
+            flush_with_timeout<kNumTimeoutCycles>(ncclGin(nccl_dev_comm, i, NCCL_GIN_RESOURCE_SHARING_CTA), ncclCoopWarp(), i);
         cooperative_groups::this_grid().sync();
     }
 }

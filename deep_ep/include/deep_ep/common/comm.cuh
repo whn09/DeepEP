@@ -42,8 +42,11 @@ static constexpr int kFlushAllAllocatedQPs = -1;
 // Unordered hybrid kernels never wait for the local completion of their GIN puts, yet the next
 // kernel rewrites the same buffers (dispatch and combine share one buffer with different layouts),
 // both locally and through NVLink peers, and a put that is still unacknowledged may be
-// retransmitted from the source memory at any time. Two places can close that window; both are set
-// at JIT time through the environment variables of the same name:
+// retransmitted from the source memory at any time. A flush is required whenever a send region of
+// one kernel aliases a region that the next kernel writes, in either order (combine -> dispatch or
+// dispatch -> combine). Which pairs alias depends on the shape (top-k, local ranks,
+// `allow_multiple_reduction`), so do not rely on a particular order being safe. Two places can close
+// that window; both are set at JIT time through the environment variables of the same name:
 //   EP_GIN_ENTRY_FLUSH (default 1): at kernel entry every GIN context is flushed and the grid is
 //     synchronized *before* the start barrier publishes anything. So neither this GPU nor an NVLink
 //     peer (which passes the scale-up barrier only after our signal) nor a rail peer can write our

@@ -39,6 +39,26 @@ static constexpr int kHybridCombineTag1 = 9;
 // Some reserved count
 static constexpr int kFlushAllAllocatedQPs = -1;
 
+// Unordered hybrid kernels never wait for the local completion of their GIN puts, yet the next
+// kernel rewrites the same send buffers (dispatch and combine share one buffer with different
+// layouts), and a put that is still unacknowledged may be retransmitted from the source memory at
+// any time. Two places can close that window; both are set at JIT time through the environment
+// variables of the same name:
+//   EP_GIN_ENTRY_FLUSH (default 1): the start barrier flushes every GIN context before any warp
+//     writes a send buffer. The previous kernel's puts have usually been acknowledged by then, so
+//     this is nearly free.
+//   EP_GIN_EXIT_FLUSH (default 0): each warp that issued puts flushes its contexts before exiting,
+//     like the upstream ordered combine. It costs ~10% on combine, because contexts are shared by
+//     several SMs and each flush waits for all of them.
+#ifndef EP_GIN_ENTRY_FLUSH
+#define EP_GIN_ENTRY_FLUSH 1
+#endif
+#ifndef EP_GIN_EXIT_FLUSH
+#define EP_GIN_EXIT_FLUSH 0
+#endif
+static constexpr bool kGinEntryFlush = (EP_GIN_ENTRY_FLUSH) != 0;
+static constexpr bool kGinExitFlush = (EP_GIN_EXIT_FLUSH) != 0;
+
 template <int64_t kNumTimeoutCycles, typename func_t>
 __device__ __forceinline__ void timeout_while(const bool& condition, const func_t& func,
                                               int64_t start_clock = 0) {

@@ -126,8 +126,10 @@ hybrid_unordered_combine_impl(nv_bfloat16* x,
 
     // Global parallel barriers for scale-out subteam and scale-up subteam
     // NOTES: this barrier needs a grid sync, as there are channel scale-up tail cleaning before
+    // Flush our previous puts before the start barrier publishes anything; see `comm::kGinEntryFlush`
+    comm::flush_gin_before_barrier<kNumSMs, kNumThreads, kNumQPs>(nccl_dev_comm, sm_idx, thread_idx);
     comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,
-                      kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridCombineTag0, comm::kGinEntryFlush, true, true>(
+                      kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridCombineTag0, false, true, true>(
         gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx);
 
     // Adjust register count at certain cases

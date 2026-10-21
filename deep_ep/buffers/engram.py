@@ -77,9 +77,10 @@ class EngramBuffer(BufferBase):
             dist.all_gather_object(shared_comm, (pid, fd), group)
 
         super().__init__(explicitly_destroy)
-        # register only GDAKI backend to accelerate init
+        # register only GDAKI backend to accelerate init, unless a GIN backend was chosen
+        # explicitly (e.g. `NCCL_GIN_TYPE=5` for EFA GDA)
         with EnvOverride([
-            ('NCCL_GIN_TYPE', '3', True),
+            ('NCCL_GIN_TYPE', '3', 'NCCL_GIN_TYPE' not in os.environ and 'EP_GIN_TYPE' not in os.environ),
             # TODO: Configure RD atomics through NCCL devComm config when supported.
             ('NCCL_GIN_GDAKI_MAX_QP_RD_ATOMIC', '8', restrict_rd_atomic),
         ]):

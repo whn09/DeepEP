@@ -57,7 +57,9 @@ public:
             nccl_comm, shared_comm, num_ranks, rank_idx,
             num_workspace_bytes, num_gpu_buffer_bytes, num_rdma_storage_bytes, use_cpu_rdma_storage,
             allow_hybrid_mode, sl_idx, num_allocated_qps, qp_depth,
-            0, num_gpu_timeout_secs);
+            0, num_gpu_timeout_secs,
+            false, nullptr, false,
+            /* weak_gin_signals_only: fetches only issue gets and flushes */ true);
         main_context = context;
         auto& workspace = *static_cast<layout::EngramWorkspace*>(context->workspace);
         context->set_barrier_signals(&workspace.barrier);

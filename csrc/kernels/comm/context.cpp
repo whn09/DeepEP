@@ -84,7 +84,8 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
                  const int& num_cpu_timeout_secs, const int& num_gpu_timeout_secs,
                  const bool& enable_lsa_multimem,
                  const std::shared_ptr<Context>& main_context,
-                 const bool& unordered_gin_layout):
+                 const bool& unordered_gin_layout,
+                 const bool& weak_gin_signals_only):
     rank_idx(rank_idx), num_ranks(num_ranks),
     gin_min_stride(1),
     num_allocated_qps(num_allocated_qps),
@@ -177,6 +178,15 @@ Context::Context(const int64_t& nccl_comm, const symmetric::shared_comm_t& share
 
             // Customized RDMA barrier needs extra signals
             reqs.ginSignalCount = num_ranks + 2 * 2;
+
+            // NCCL requires strong and VA signals by default, which EFA GDA (GIN type 5) does not
+            // provide. A buffer whose kernels only count signals (e.g. Engram: gets, flushes and the
+            // barrier) drops the requirement there; other backends keep the upstream requirements
+            const auto gin_type_env = std::getenv("EP_GIN_TYPE") != nullptr ? "EP_GIN_TYPE" : "NCCL_GIN_TYPE";
+            if (weak_gin_signals_only and get_env<int>(gin_type_env, 0) == NCCL_GIN_TYPE_EFA_GDA) {
+                reqs.ginStrongSignalsRequired = false;
+                reqs.ginVaSignalsRequired = false;
+            }
         }
         if (allow_hybrid_mode and num_rdma_storage_bytes > 0) {
             reqs.ginCustomStride = gin_min_stride;
